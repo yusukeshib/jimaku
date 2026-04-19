@@ -1,0 +1,18 @@
+{
+  "name": "prime-ja-subs",
+  "version": "0.1.0",
+  "description": "Amazon Prime Video の英語字幕を Claude で日本語に翻訳してオーバーレイ表示する Chrome 拡張",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.25",
+    "@types/chrome": "^0.0.268",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0"
+  }
+}
