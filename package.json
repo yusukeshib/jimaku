@@ -10,7 +10,9 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "format": "biome format --write .",
-    "check": "biome check --write ."
+    "check": "biome check --write .",
+    "chrome": "'/Applications/Google Chrome.app/Contents/MacOS/Google Chrome' --user-data-dir=./.chrome-profile --load-extension=$(pwd)/dist --remote-debugging-port=9222 --no-first-run --no-default-browser-check https://www.primevideo.com",
+    "chrome:build": "npm run build && npm run chrome"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.12",
