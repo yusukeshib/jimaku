@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="ja">
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Prime JA Subs 設定</title>
+    <title>Prime JA Subs — Settings</title>
     <style>
       body {
         font-family: system-ui, -apple-system, "Hiragino Kaku Gothic ProN", sans-serif;
@@ -15,7 +15,7 @@
       h1 { font-size: 18px; margin-bottom: 4px; }
       .sub { font-size: 12px; color: #666; margin-bottom: 24px; }
       label { display: block; font-size: 13px; margin-bottom: 6px; font-weight: 600; }
-      input[type="password"], input[type="text"] {
+      input[type="password"], input[type="text"], input[type="number"] {
         width: 100%;
         box-sizing: border-box;
         padding: 10px 12px;
@@ -42,25 +42,25 @@
   </head>
   <body>
     <h1>Prime JA Subs</h1>
-    <p class="sub">Amazon Prime Video の英語字幕を Claude で日本語に翻訳します。</p>
+    <p class="sub">Translates Amazon Prime Video subtitles with Claude.</p>
 
-    <label for="apiKey">Anthropic API キー</label>
+    <label for="apiKey">Anthropic API key</label>
     <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
     <p class="hint">
-      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>
-      で発行したキーを入力してください。
+      Paste a key issued at
+      <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>.
     </p>
     <p class="hint" style="color:#b46800;">
-      ⚠ APIキーは <code>chrome.storage.local</code> に<strong>平文で保存</strong>されます。共有端末では使用しないでください。
+      ⚠ The API key is stored in <code>chrome.storage.local</code> <strong>in plaintext</strong>. Do not use on shared machines.
     </p>
 
-    <label for="offsetSeconds" style="margin-top: 20px;">タイミング補正 (秒)</label>
+    <label for="offsetSeconds" style="margin-top: 20px;">Timing offset (seconds)</label>
     <input id="offsetSeconds" type="number" step="0.1" placeholder="0" />
     <p class="hint">
-      字幕の表示を遅らせたいときは正の値 (例: <code>2</code> で2秒遅らせる)、早めたいときは負の値。
+      Positive values delay the overlay (e.g. <code>2</code> shows it 2 s later). Negative values advance it.
     </p>
 
-    <button id="save" type="button">保存</button>
+    <button id="save" type="button">Save</button>
     <div class="status" id="status"></div>
 
     <script type="module" src="./options.ts"></script>

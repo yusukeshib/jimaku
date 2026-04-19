@@ -32,7 +32,7 @@ export async function loadCues(
       return await fetchAndStitchHlsVtt(url, text, fetcher, signal);
     default:
       throw new Error(
-        `字幕フォーマットを判定できませんでした（先頭: ${text.slice(0, 40).replace(/\n/g, " ")}）`,
+        `Could not detect subtitle format (head: ${text.slice(0, 40).replace(/\n/g, " ")})`,
       );
   }
 }

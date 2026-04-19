@@ -1,6 +1,6 @@
 import { getApiKey, getCache, getOffsetSeconds, setCache } from "./lib/cache";
 import { loadCues } from "./lib/subtitle";
-import { AbortError, MODEL, translateCues } from "./lib/translate";
+import { AbortError, MODEL, TARGET_LANGUAGE, translateCues } from "./lib/translate";
 import type { ContentReady, ExtensionMessage, TranslatedCue } from "./types";
 
 const OVERLAY_HOST_ID = "prime-ja-subs-host";
@@ -149,14 +149,14 @@ function renderButton() {
     case "detected":
       btn.classList.remove("hidden");
       btn.disabled = false;
-      btn.innerHTML = `🇯🇵 日本語字幕を生成<span class="note">Claude Opus 4.7 / 初回のみ課金</span>`;
+      btn.innerHTML = `Generate ${TARGET_LANGUAGE} subtitles<span class="note">${MODEL} · billed on first run</span>`;
       break;
     case "translating": {
       btn.classList.remove("hidden");
       btn.disabled = true;
       const p = state.progress;
       const pct = p ? Math.round((p.done / Math.max(1, p.total)) * 100) : 0;
-      btn.innerHTML = `翻訳中… ${p?.done ?? 0}/${p?.total ?? "?"} (${pct}%)`;
+      btn.innerHTML = `Translating… ${p?.done ?? 0}/${p?.total ?? "?"} (${pct}%)`;
       break;
     }
     case "ready":
@@ -165,7 +165,7 @@ function renderButton() {
     case "error":
       btn.classList.remove("hidden");
       btn.disabled = false;
-      btn.innerHTML = `⚠ エラー (クリックで再試行)<span class="note">${escapeHtml((state.error ?? "").slice(0, 80))}</span>`;
+      btn.innerHTML = `⚠ Error (click to retry)<span class="note">${escapeHtml((state.error ?? "").slice(0, 80))}</span>`;
       break;
   }
 }
@@ -234,7 +234,7 @@ async function onButtonClick() {
   const apiKey = await getApiKey();
   if (!apiKey) {
     state.status = "error";
-    state.error = "APIキーが未設定です。拡張機能のオプションから入力してください。";
+    state.error = "No API key set. Open the extension options to add one.";
     renderButton();
     return;
   }
@@ -251,7 +251,7 @@ async function onButtonClick() {
     const text = await fetchSubtitleText(targetUrl, signal);
     const cues = await loadCues(targetUrl, text, fetchSubtitleText, signal);
     if (cues.length === 0) {
-      throw new Error("字幕のパース結果が空でした");
+      throw new Error("Subtitle parse produced no cues");
     }
 
     state.progress = { done: 0, total: cues.length };
@@ -293,7 +293,7 @@ async function onButtonClick() {
 
 async function fetchSubtitleText(url: string, signal?: AbortSignal): Promise<string> {
   const res = await fetch(url, { credentials: "omit", signal });
-  if (!res.ok) throw new Error(`字幕の取得に失敗: ${res.status}`);
+  if (!res.ok) throw new Error(`Failed to fetch subtitles: ${res.status}`);
   return await res.text();
 }
 

@@ -15,19 +15,19 @@ saveBtn.addEventListener("click", async () => {
   const key = input.value.trim();
   if (!key) {
     status.style.color = "#b33";
-    status.textContent = "キーが空です。";
+    status.textContent = "API key is empty.";
     return;
   }
   const rawOffset = offsetInput.value.trim();
   const offset = rawOffset === "" ? 0 : Number(rawOffset);
   if (!Number.isFinite(offset)) {
     status.style.color = "#b33";
-    status.textContent = "タイミング補正は数値で入力してください。";
+    status.textContent = "Timing offset must be a number.";
     return;
   }
   await Promise.all([setApiKey(key), setOffsetSeconds(offset)]);
   status.style.color = "#0a7a2f";
-  status.textContent = "保存しました。";
+  status.textContent = "Saved.";
   setTimeout(() => (status.textContent = ""), 2500);
 });
 

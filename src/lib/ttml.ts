@@ -62,7 +62,7 @@ function collapseWhitespace(s: string): string {
 export function parseTtml(src: string): Cue[] {
   const doc = new DOMParser().parseFromString(src, "application/xml");
   const parserError = doc.getElementsByTagName("parsererror")[0];
-  if (parserError) throw new Error("TTML のパースに失敗しました");
+  if (parserError) throw new Error("Failed to parse TTML");
 
   const root = doc.documentElement;
   const tickRate = Number(root.getAttribute("ttp:tickRate") ?? "0") || 0;

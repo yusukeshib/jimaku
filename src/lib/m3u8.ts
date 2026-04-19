@@ -70,7 +70,7 @@ export async function fetchAndStitchHlsVtt(
   signal?: AbortSignal,
 ): Promise<Cue[]> {
   const segments = parsePlaylist(playlistUrl, playlistText);
-  if (segments.length === 0) throw new Error("m3u8 プレイリストにセグメントが見つかりませんでした");
+  if (segments.length === 0) throw new Error("No segments found in m3u8 playlist");
 
   // Precompute cumulative EXTINF-based offsets as fallback
   const fallbackOffsets: number[] = [];

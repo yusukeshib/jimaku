@@ -1,25 +1,30 @@
 import type { Cue, TranslatedCue } from "../types";
 
 export const MODEL = "claude-opus-4-7";
+export const TARGET_LANGUAGE = "Japanese";
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
 const CHUNK_SIZE = 50;
 const MAX_TOKENS = 8000;
 const MAX_ATTEMPTS = 4;
 
-const SYSTEM_PROMPT = `あなたは映画字幕の翻訳者です。英語字幕を自然で簡潔な日本語字幕に訳してください。
+const SYSTEM_PROMPT = `You are a film subtitle translator. Translate the source subtitles into natural, concise ${TARGET_LANGUAGE} subtitles.
 
-ルール:
-- 1行あたり全角20字程度を目安に、長ければ改行を入れる
-- 固有名詞はカタカナ表記（既に定着した訳がある場合はそれに従う）
-- 口調は作品の雰囲気やキャラクターに合わせる
-- 疑問符・感嘆符は全角
+Rules:
+- Keep each line short enough to read quickly; insert a line break if it would otherwise be too long on screen.
+- Render proper nouns in the target language's native script; follow established translations when they exist.
+- Match the tone to the work's mood and each character's voice.
+- Use the target language's native punctuation conventions.
+- Consider each cue's start/end and the gap to adjacent cues when choosing pacing and tone:
+  - Short gap (< 1s) = rapid dialogue; crisp, clipped phrasing.
+  - Long gap (> 5s) = monologue / narration; calmer phrasing.
+- One input cue maps to exactly one output line. Do not merge or split cues.
 
-入出力フォーマット:
-- 入力は <line i="N">英語</line> の連続
-- 出力も <line i="N">日本語</line> の連続で、各入力行に対応させる
-- N (index) は入力と完全に一致させること
-- 前置き・コードフェンス・解説は一切付けない。<line> タグ以外を出力しない`;
+I/O format:
+- Input: a sequence of <line i="N" start="SEC" end="SEC">source</line>.
+- Output: a sequence of <line i="N">${TARGET_LANGUAGE}</line> (do NOT echo start/end).
+- The index N must match the input exactly.
+- Output only <line> tags — no preamble, no code fences, no commentary.`;
 
 type Progress = (done: number, total: number) => void;
 
@@ -62,8 +67,15 @@ function unescapeXml(s: string): string {
     .replace(/&amp;/g, "&");
 }
 
-function serializeInput(items: Array<{ i: number; t: string }>): string {
-  return items.map((x) => `<line i="${x.i}">${escapeXml(x.t)}</line>`).join("\n");
+function serializeInput(
+  items: Array<{ i: number; start: number; end: number; t: string }>,
+): string {
+  return items
+    .map(
+      (x) =>
+        `<line i="${x.i}" start="${x.start.toFixed(2)}" end="${x.end.toFixed(2)}">${escapeXml(x.t)}</line>`,
+    )
+    .join("\n");
 }
 
 function parseOutput(raw: string): Array<{ i: number; ja: string }> {
@@ -72,7 +84,7 @@ function parseOutput(raw: string): Array<{ i: number; ja: string }> {
   for (const m of raw.matchAll(re)) {
     out.push({ i: Number(m[1]), ja: unescapeXml(m[2]).trim() });
   }
-  if (out.length === 0) throw new Error("モデル応答に <line> タグが見当たりません");
+  if (out.length === 0) throw new Error("No <line> tags found in model response");
   return out;
 }
 
@@ -101,9 +113,9 @@ async function callClaudeOnce(
   if (prevContext) {
     messages.push({
       role: "user",
-      content: `参考: 直前のチャンクの翻訳例です。文脈と口調の一貫性のみに使い、このチャンク自体は翻訳しないでください。\n${prevContext}`,
+      content: `Reference: translations from the previous chunk. Use them only for context and tonal consistency; do NOT retranslate them here.\n${prevContext}`,
     });
-    messages.push({ role: "assistant", content: "了解しました。次のチャンクの翻訳を待ちます。" });
+    messages.push({ role: "assistant", content: "Understood. Waiting for the next chunk." });
   }
   messages.push({ role: "user", content: userContent });
 
@@ -178,7 +190,7 @@ export async function translateCues(
   opts: TranslateOptions = {},
 ): Promise<TranslatedCue[]> {
   const { signal, onProgress } = opts;
-  const indexed = cues.map((c, i) => ({ i, t: c.text }));
+  const indexed = cues.map((c, i) => ({ i, start: c.start, end: c.end, t: c.text }));
   const chunks = chunk(indexed, CHUNK_SIZE);
   const result: TranslatedCue[] = new Array(cues.length);
   let done = 0;
