@@ -48,10 +48,13 @@
     <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" />
     <p class="hint">
       <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noreferrer">console.anthropic.com</a>
-      で発行したキーを入力してください。ローカル (chrome.storage.local) に保存されます。
+      で発行したキーを入力してください。
+    </p>
+    <p class="hint" style="color:#b46800;">
+      ⚠ APIキーは <code>chrome.storage.local</code> に<strong>平文で保存</strong>されます。共有端末では使用しないでください。
     </p>
 
-    <button id="save">保存</button>
+    <button id="save" type="button">保存</button>
     <div class="status" id="status"></div>
 
     <script type="module" src="./options.ts"></script>

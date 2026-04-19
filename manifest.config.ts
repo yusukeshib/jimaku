@@ -5,7 +5,7 @@ export default defineManifest({
   name: "Prime JA Subs",
   version: "0.1.0",
   description: "Amazon Prime Video の英語字幕を Claude で日本語に翻訳してオーバーレイ表示",
-  permissions: ["storage", "webRequest", "scripting"],
+  permissions: ["storage", "webRequest", "webNavigation", "scripting"],
   host_permissions: [
     "*://*.amazon.com/*",
     "*://*.amazon.co.jp/*",
@@ -20,12 +20,13 @@ export default defineManifest({
   content_scripts: [
     {
       matches: [
-        "*://*.amazon.com/*",
-        "*://*.amazon.co.jp/*",
+        "*://*.amazon.com/gp/video/*",
+        "*://*.amazon.com/dp/*",
+        "*://*.amazon.co.jp/gp/video/*",
+        "*://*.amazon.co.jp/dp/*",
         "*://*.primevideo.com/*",
       ],
       js: ["src/content.ts"],
-      css: ["src/overlay.css"],
       run_at: "document_idle",
     },
   ],

@@ -7,9 +7,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "format": "biome format --write .",
+    "check": "biome check --write ."
   },
   "devDependencies": {
+    "@biomejs/biome": "^2.4.12",
     "@crxjs/vite-plugin": "^2.0.0-beta.25",
     "@types/chrome": "^0.0.268",
     "typescript": "^5.5.0",

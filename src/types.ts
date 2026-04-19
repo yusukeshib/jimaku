@@ -16,36 +16,17 @@ export type CacheEntry = {
   cues: TranslatedCue[];
 };
 
+export type ContentReady = {
+  type: "CONTENT_READY";
+};
+
 export type SubtitleDetected = {
   type: "SUBTITLE_DETECTED";
   url: string;
 };
 
-export type TranslateRequest = {
-  type: "TRANSLATE_REQUEST";
-  url: string;
-  vtt: string;
+export type TabReset = {
+  type: "TAB_RESET";
 };
 
-export type TranslateProgress = {
-  type: "TRANSLATE_PROGRESS";
-  done: number;
-  total: number;
-};
-
-export type TranslateDone = {
-  type: "TRANSLATE_DONE";
-  cues: TranslatedCue[];
-};
-
-export type TranslateError = {
-  type: "TRANSLATE_ERROR";
-  error: string;
-};
-
-export type ExtensionMessage =
-  | SubtitleDetected
-  | TranslateRequest
-  | TranslateProgress
-  | TranslateDone
-  | TranslateError;
+export type ExtensionMessage = ContentReady | SubtitleDetected | TabReset;

@@ -3,16 +3,7 @@ import type { Cue } from "../types";
 const TIMESTAMP = /(\d{2,}):(\d{2}):(\d{2})[.,](\d{3})\s*-->\s*(\d{2,}):(\d{2}):(\d{2})[.,](\d{3})/;
 
 function parseTs(h: string, m: string, s: string, ms: string): number {
-  return (+h) * 3600 + (+m) * 60 + (+s) + (+ms) / 1000;
-}
-
-function formatTs(sec: number): string {
-  const h = Math.floor(sec / 3600);
-  const m = Math.floor((sec % 3600) / 60);
-  const s = Math.floor(sec % 60);
-  const ms = Math.round((sec - Math.floor(sec)) * 1000);
-  const pad = (n: number, w = 2) => String(n).padStart(w, "0");
-  return `${pad(h)}:${pad(m)}:${pad(s)}.${pad(ms, 3)}`;
+  return +h * 3600 + +m * 60 + +s + +ms / 1000;
 }
 
 function stripTags(text: string): string {
@@ -43,5 +34,3 @@ export function parseVtt(src: string): Cue[] {
   }
   return cues;
 }
-
-export { formatTs };
