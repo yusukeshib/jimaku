@@ -1,65 +1,40 @@
-# Prime JA Subs
+# Subtitle
 
-A Chrome extension (MV3) that translates Amazon Prime Video's English subtitles into Japanese using Claude Opus 4.7 and overlays them on the video.
+A Chrome extension that translates video subtitles into Japanese in real time using Claude, and overlays them on top of the player.
+
+## Install
+
+The extension isn't on the Chrome Web Store yet. To install it manually:
+
+1. Download the latest build (`dist/` folder) from the [Releases](../../releases) page, or build it yourself with `npm install && npm run build`.
+2. Open `chrome://extensions` in Chrome.
+3. Turn on **Developer mode** (top right).
+4. Click **Load unpacked** and select the `dist/` folder.
+
+## Setup
+
+1. Get an Anthropic API key from [console.anthropic.com](https://console.anthropic.com/).
+2. Click the extension icon, open **Options**, and paste your API key.
+
+Your key is stored locally in your browser and is only sent to Anthropic when translating.
+
+## Usage
+
+1. Open a supported video and start playback with the original subtitles turned on.
+2. Click the **Translate** button that appears on the player.
+3. Japanese subtitles appear at the top of the frame; the original subtitles stay at the bottom.
+
+Translation happens in chunks, so the first lines show up within a few seconds and the rest fill in as you watch.
 
 ## Supported subtitle formats
 
-- **WebVTT** (`.vtt`)
-- **TTML / DFXP** (`.xml`, `.dfxp`, `.ttml`, `.ttml2`) — Prime Video's standard format
-- **HLS WebVTT** (`.m3u8` playlist + `.vtt` segments) — used by newer titles
-  - Uses `X-TIMESTAMP-MAP` to convert to absolute time when present
-  - Otherwise accumulates `#EXTINF` values from the playlist to offset each segment
-
-The fetched text is sniffed by its leading bytes to auto-detect the format (`src/lib/subtitle.ts`).
-
-## Development
-
-```bash
-npm install
-npm run dev      # Vite dev build
-npm run build    # Production build -> dist/
-npm run lint     # Biome check
-npm run format   # Biome format
-npm run typecheck
-```
-
-## Install (unsigned)
-
-1. `npm run build`
-2. Chrome → `chrome://extensions` → enable Developer mode
-3. "Load unpacked" → select `dist/`
-4. Open the extension options and paste your Anthropic API key
+- WebVTT
+- TTML / DFXP
+- HLS WebVTT (playlists with segmented `.vtt` files)
 
 ## Known limitations
 
-- Translations come back from Claude as `<line>` tags. If the model breaks the tag structure, that chunk falls back to the source English (mitigated with 4 retries + exponential backoff)
-- Rendered alongside Prime's native subtitles (Japanese at the top of the frame, English at the bottom)
-- The API key is stored in `chrome.storage.local` in plain text
-- Subtitle URL detection is pattern-based. If Prime changes their URL conventions, update `SUBTITLE_URL_RE` / `SUBTITLE_PATH_HINT` / `HINTED_CONTAINER_RE` in `src/background.ts`
-- TTML timing supports clock time (`HH:MM:SS.fff`) and offsets (`Ns` / `Nms` / `Nf` / `Nt`). SMPTE time is not supported
-
-## Architecture
-
-```
-background.ts    Captures subtitle URLs via webRequest
-                 Stores URLs per tab, replays them on CONTENT_READY
-                 Resets on SPA navigation via webNavigation.onHistoryStateUpdated
-       │
-       │ SUBTITLE_DETECTED / TAB_RESET
-       ▼
-content.ts       Shadow DOM overlay + translate button
-                 On click: fetch → loadCues → translateCues
-                 Selects the active cue via timeupdate + binary search
-                 Aborts in-flight translation on navigation via AbortController
-       │
-       ▼
-lib/subtitle.ts  Format detection + dispatch
-  ├─ lib/vtt.ts  WebVTT parser
-  ├─ lib/ttml.ts TTML/DFXP parser (DOMParser-based)
-  └─ lib/m3u8.ts HLS playlist parsing + parallel VTT segment fetch + offset correction
-       │
-       ▼
-lib/translate.ts Claude Opus 4.7, 50 cues per chunk
-                 System prompt uses prompt caching (ephemeral)
-                 Retries up to 4 times on 429 / 5xx / network failures
-```
+- Occasional chunks may fall back to the original English if the model's response is malformed.
+- The API key is stored in plain text in `chrome.storage.local`. Don't use this extension on a shared browser profile.
+- Translation uses the Anthropic API and will count against your API usage / billing.
+- Some TTML timing variants (SMPTE time) aren't supported.
