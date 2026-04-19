@@ -54,6 +54,12 @@
       ⚠ APIキーは <code>chrome.storage.local</code> に<strong>平文で保存</strong>されます。共有端末では使用しないでください。
     </p>
 
+    <label for="offsetSeconds" style="margin-top: 20px;">タイミング補正 (秒)</label>
+    <input id="offsetSeconds" type="number" step="0.1" placeholder="0" />
+    <p class="hint">
+      字幕の表示を遅らせたいときは正の値 (例: <code>2</code> で2秒遅らせる)、早めたいときは負の値。
+    </p>
+
     <button id="save" type="button">保存</button>
     <div class="status" id="status"></div>
 

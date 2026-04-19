@@ -4,7 +4,7 @@ export const MODEL = "claude-opus-4-7";
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
 const CHUNK_SIZE = 50;
-const MAX_TOKENS = 32000;
+const MAX_TOKENS = 8000;
 const MAX_ATTEMPTS = 4;
 
 const SYSTEM_PROMPT = `あなたは映画字幕の翻訳者です。英語字幕を自然で簡潔な日本語字幕に訳してください。

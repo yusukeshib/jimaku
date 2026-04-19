@@ -11,6 +11,8 @@ export default defineManifest({
     "*://*.amazon.co.jp/*",
     "*://*.primevideo.com/*",
     "*://*.media-amazon.com/*",
+    "*://*.pv-cdn.net/*",
+    "*://*.aiv-cdn.net/*",
     "https://api.anthropic.com/*",
   ],
   background: {

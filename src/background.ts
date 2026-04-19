@@ -5,6 +5,17 @@ const SUBTITLE_PATH_HINT = /(caption|subtitle|timedtext|subtitleset|-subs?-|_sub
 const HINTED_CONTAINER_RE = /\.(xml|json|m3u8)(\?|$)/i;
 
 const urlsByTab = new Map<number, Set<string>>();
+const lastTitleKeyByTab = new Map<number, string>();
+
+function titleKeyFromUrl(url: string): string {
+  try {
+    const u = new URL(url);
+    const m = u.pathname.match(/\/(?:gp\/video\/detail|detail|dp)\/([A-Z0-9]+)/i);
+    return m ? `${u.host}:${m[1]}` : `${u.host}${u.pathname}`;
+  } catch {
+    return url;
+  }
+}
 
 function looksLikeSubtitle(url: string): boolean {
   if (SUBTITLE_URL_RE.test(url)) return true;
@@ -45,6 +56,8 @@ chrome.webRequest.onBeforeRequest.addListener(
       "*://*.amazon.co.jp/*",
       "*://*.primevideo.com/*",
       "*://*.media-amazon.com/*",
+      "*://*.pv-cdn.net/*",
+      "*://*.aiv-cdn.net/*",
     ],
   },
 );
@@ -64,16 +77,31 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender) => {
 // Clear tab state on full page load
 chrome.tabs.onRemoved.addListener((tabId) => {
   urlsByTab.delete(tabId);
+  lastTitleKeyByTab.delete(tabId);
 });
 
-chrome.tabs.onUpdated.addListener((tabId, info) => {
-  if (info.status === "loading") resetTab(tabId);
+chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
+  if (info.status !== "loading") return;
+  const url = info.url ?? tab.url;
+  if (!url) {
+    resetTab(tabId);
+    return;
+  }
+  const key = titleKeyFromUrl(url);
+  if (lastTitleKeyByTab.get(tabId) === key) return;
+  lastTitleKeyByTab.set(tabId, key);
+  resetTab(tabId);
 });
 
-// SPA navigation (pushState/replaceState) inside Prime Video
+// SPA navigation (pushState/replaceState) inside Prime Video — only reset if
+// the title actually changed, since the player routinely rewrites the URL
+// (ref= params, autoplay toggles) while the user keeps watching the same asin.
 chrome.webNavigation.onHistoryStateUpdated.addListener(
   (details) => {
     if (details.frameId !== 0) return;
+    const key = titleKeyFromUrl(details.url);
+    if (lastTitleKeyByTab.get(details.tabId) === key) return;
+    lastTitleKeyByTab.set(details.tabId, key);
     resetTab(details.tabId);
   },
   {

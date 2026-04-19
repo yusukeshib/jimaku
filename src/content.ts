@@ -1,4 +1,4 @@
-import { getApiKey, getCache, setCache } from "./lib/cache";
+import { getApiKey, getCache, getOffsetSeconds, setCache } from "./lib/cache";
 import { loadCues } from "./lib/subtitle";
 import { AbortError, MODEL, translateCues } from "./lib/translate";
 import type { ContentReady, ExtensionMessage, TranslatedCue } from "./types";
@@ -18,6 +18,7 @@ type State = {
   error: string | null;
   abortCtrl: AbortController | null;
   cleanupVideo: (() => void) | null;
+  offsetSeconds: number;
 };
 
 const state: State = {
@@ -30,11 +31,19 @@ const state: State = {
   error: null,
   abortCtrl: null,
   cleanupVideo: null,
+  offsetSeconds: 0,
 };
 
 function findVideo(): HTMLVideoElement | null {
-  const videos = Array.from(document.querySelectorAll("video"));
-  return videos.find((v) => v.videoWidth > 0 && v.videoHeight > 0) ?? videos[0] ?? null;
+  const videos = Array.from(document.querySelectorAll("video")).filter(
+    (v) => v.videoWidth > 0 && v.videoHeight > 0,
+  );
+  if (videos.length === 0) return null;
+  // Prime Video keeps a paused preroll ad <video> and the playing main <video>
+  // simultaneously; prefer the one that is actually playing, then the longest.
+  const playing = videos.filter((v) => !v.paused);
+  const pool = playing.length > 0 ? playing : videos;
+  return pool.reduce((best, v) => (v.duration > (best?.duration ?? 0) ? v : best), pool[0]);
 }
 
 function ensureOverlayHost(): ShadowRoot {
@@ -202,7 +211,7 @@ function attachVideoSync(video: HTMLVideoElement) {
   state.cleanupVideo?.();
   state.video = video;
   const onUpdate = () => {
-    const cue = findCueAt(video.currentTime);
+    const cue = findCueAt(video.currentTime - state.offsetSeconds);
     setOverlayText(cue ? cue.ja : "");
   };
   video.addEventListener("timeupdate", onUpdate);
@@ -283,7 +292,7 @@ async function onButtonClick() {
 }
 
 async function fetchSubtitleText(url: string, signal?: AbortSignal): Promise<string> {
-  const res = await fetch(url, { credentials: "include", signal });
+  const res = await fetch(url, { credentials: "omit", signal });
   if (!res.ok) throw new Error(`字幕の取得に失敗: ${res.status}`);
   return await res.text();
 }
@@ -355,5 +364,13 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
 // Tell background we're ready so it can replay any URLs it already captured.
 const readyMsg: ContentReady = { type: "CONTENT_READY" };
 chrome.runtime.sendMessage(readyMsg).catch(() => {});
+
+void getOffsetSeconds().then((s) => {
+  state.offsetSeconds = s;
+});
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local") return;
+  if (changes.offsetSeconds) state.offsetSeconds = Number(changes.offsetSeconds.newValue) || 0;
+});
 
 watchForVideo();
