@@ -117,7 +117,7 @@ type ParsedLine = { start: number; end: number; text: string };
 function parseTimeValue(s: string): number {
   // Reject empty / whitespace explicitly: `Number("")` is 0, which would
   // silently turn a missing attribute into "time 0".
-  if (!s || !s.trim()) return Number.NaN;
+  if (!s?.trim()) return Number.NaN;
   const v = Number(s);
   if (Number.isFinite(v)) return v;
   // Accept clock-time style HH:MM:SS(.fff) in case the model ignores our "seconds" instruction.
@@ -283,8 +283,7 @@ async function callClaudeStreaming(
                 const idx = acc.indexOf("</line>", scanFrom);
                 if (idx === -1) break;
                 const open = acc.lastIndexOf("<line", idx);
-                const parsed =
-                  open >= 0 ? parseLineXml(acc.slice(open, idx + 7)) : null;
+                const parsed = open >= 0 ? parseLineXml(acc.slice(open, idx + 7)) : null;
                 scanFrom = idx + 7;
                 onLineDone(parsed);
               }
@@ -326,8 +325,7 @@ async function callClaudeWithRetry(
       lastErr = e;
       if (!isRetryable(e) || attempt === MAX_ATTEMPTS - 1) throw e;
       const retryAfterMs = (e as { retryAfterMs?: number }).retryAfterMs;
-      const backoff =
-        retryAfterMs ?? Math.min(30000, 1000 * 2 ** attempt) + Math.random() * 500;
+      const backoff = retryAfterMs ?? Math.min(30000, 1000 * 2 ** attempt) + Math.random() * 500;
       await sleep(backoff, signal);
     }
   }

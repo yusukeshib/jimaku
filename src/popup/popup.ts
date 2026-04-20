@@ -12,12 +12,7 @@ import {
   setTargetLanguage,
 } from "../lib/cache";
 import { MODEL } from "../lib/translate";
-import type {
-  ExtensionMessage,
-  PopupGetState,
-  StateSnapshot,
-  Status,
-} from "../types";
+import type { ExtensionMessage, PopupGetState, StateSnapshot, Status } from "../types";
 
 const LANGUAGES = [
   "Japanese",

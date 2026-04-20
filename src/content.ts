@@ -1,3 +1,4 @@
+import { state } from "./content/state";
 import {
   DEFAULT_TARGET_LANGUAGE,
   getApiKey,
@@ -16,7 +17,6 @@ import type {
   ExtensionMessage,
   StateSnapshot,
   StateUpdate,
-  Status,
   TranslatedCue,
 } from "./types";
 
@@ -43,54 +43,12 @@ const HIDE_ORIGINAL_CSS = `
   }
 `;
 
-type State = {
-  subtitleUrl: string | null;
-  cues: TranslatedCue[] | null;
-  sortedStarts: number[] | null;
-  sourceCues: Cue[] | null;
-  sourceByNormText: Map<string, Cue[]> | null;
-  timeOffset: number;
-  video: HTMLVideoElement | null;
-  status: Status;
-  progress: { done: number; total: number } | null;
-  error: string | null;
-  abortCtrl: AbortController | null;
-  cleanupVideo: (() => void) | null;
-  cleanupCalibration: (() => void) | null;
-  showTranslated: boolean;
-  hideOriginal: boolean;
-  targetLanguage: string;
-  enabled: boolean;
-};
-
-const state: State = {
-  subtitleUrl: null,
-  cues: null,
-  sortedStarts: null,
-  sourceCues: null,
-  sourceByNormText: null,
-  timeOffset: 0,
-  video: null,
-  status: "idle",
-  progress: null,
-  error: null,
-  abortCtrl: null,
-  cleanupVideo: null,
-  cleanupCalibration: null,
-  showTranslated: true,
-  hideOriginal: false,
-  targetLanguage: DEFAULT_TARGET_LANGUAGE,
-  enabled: true,
-};
+// State lives in ./content/state — this file is the orchestrator.
 
 function findTitle(): string | null {
   // Prefer explicit player-chrome titles; fall back to the document heading
   // and then to <title>, stripping Amazon's wrapper text.
-  const sels = [
-    ".atvwebplayersdk-title-text",
-    '[class*="TitleContainer"] [class*="title"]',
-    "h1",
-  ];
+  const sels = [".atvwebplayersdk-title-text", '[class*="TitleContainer"] [class*="title"]', "h1"];
   for (const sel of sels) {
     const el = document.querySelector(sel) as HTMLElement | null;
     const t = el?.textContent?.trim();
@@ -457,20 +415,24 @@ function attachVideoSync(video: HTMLVideoElement) {
 
 async function runTranslation(resumeFrom: TranslatedCue[] | null) {
   if (!state.enabled || !state.subtitleUrl) return;
-  if (state.status === "translating") return; // already running
+  // Guard on the abort controller, not on status. Status can lag (e.g. an
+  // aborted prior run's `finally` hasn't executed yet) which would wrongly
+  // block a freshly-kicked translation.
+  if (state.abortCtrl !== null) return;
 
   const apiKey = await getApiKey();
   if (!apiKey) {
-    state.status = "error";
     state.error = "No API key set. Open the extension options to add one.";
+    state.transition("error", "missing api key");
     broadcastState();
     return;
   }
 
-  state.status = "translating";
   state.error = null;
-  state.abortCtrl = new AbortController();
-  const { signal } = state.abortCtrl;
+  state.transition("translating", "runTranslation start");
+  const ctrl = new AbortController();
+  state.abortCtrl = ctrl;
+  const { signal } = ctrl;
 
   const targetUrl = state.subtitleUrl;
   const targetLang = state.targetLanguage;
@@ -537,7 +499,7 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
     if (!stillCurrent()) return;
 
     setCues(translated);
-    state.status = "ready";
+    state.transition("ready", "runTranslation complete");
     broadcastState();
 
     await setCache(targetUrl, targetLang, {
@@ -550,11 +512,13 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
   } catch (e) {
     if (e instanceof AbortError || (e as Error).name === "AbortError") return;
     if (!stillCurrent()) return;
-    state.status = "error";
     state.error = e instanceof Error ? e.message : String(e);
+    state.transition("error", "runTranslation threw");
     broadcastState();
   } finally {
-    state.abortCtrl = null;
+    // Only null if we still own the slot; a concurrent restart may have
+    // replaced it with its own controller.
+    if (state.abortCtrl === ctrl) state.abortCtrl = null;
   }
 }
 
@@ -567,12 +531,12 @@ async function fetchSubtitleText(url: string, signal?: AbortSignal): Promise<str
 function resetState() {
   clearPerUrlState();
   state.subtitleUrl = null;
-  state.status = "idle";
   subtitleCandidates.clear();
   if (resolveInterval !== null) {
     window.clearInterval(resolveInterval);
     resolveInterval = null;
   }
+  state.transition("idle", "tab reset");
   broadcastState();
 }
 
@@ -646,9 +610,7 @@ async function considerActiveTrack() {
   if (!state.subtitleUrl && subtitleCandidates.size > 0) {
     const all = [...subtitleCandidates.values()];
     if (all.every((c) => c.cues !== null)) {
-      const best = all.reduce((a, b) =>
-        (a.cues?.length ?? 0) >= (b.cues?.length ?? 0) ? a : b,
-      );
+      const best = all.reduce((a, b) => ((a.cues?.length ?? 0) >= (b.cues?.length ?? 0) ? a : b));
       if (best.cues && best.cues.length > 0) {
         if (resolveInterval !== null) {
           window.clearInterval(resolveInterval);
@@ -668,19 +630,9 @@ async function considerActiveTrack() {
   }
 }
 
-// Clear all per-URL translation state (everything except user settings).
+// Clear per-URL state via the store, then blank the overlay (owned here).
 function clearPerUrlState() {
-  state.abortCtrl?.abort();
-  state.abortCtrl = null;
-  state.cleanupVideo?.();
-  state.cleanupCalibration?.();
-  state.cues = null;
-  state.sortedStarts = null;
-  state.sourceCues = null;
-  state.sourceByNormText = null;
-  state.timeOffset = 0;
-  state.progress = null;
-  state.error = null;
+  state.clearPerUrl();
   setOverlayText("");
 }
 
@@ -711,11 +663,11 @@ async function loadOrTranslate() {
     }
     // Partial cache without playback → stay in "detected" so the popup and
     // icon reflect that we'll resume on play, not that we're done.
-    state.status = isPartial ? "detected" : "ready";
+    state.transition(isPartial ? "detected" : "ready", "cache hydrated");
     broadcastState();
     return;
   }
-  state.status = "detected";
+  state.transition("detected", "subtitle detected, no cache");
   broadcastState();
   if (state.enabled && isMainVideoPlaying()) void runTranslation(null);
 }
@@ -731,7 +683,7 @@ async function onTargetLanguageChanged() {
   const url = state.subtitleUrl;
   clearPerUrlState();
   if (!url) {
-    state.status = "idle";
+    state.transition("idle", "target language changed, no URL");
     broadcastState();
     return;
   }
@@ -748,7 +700,7 @@ function onEnabledChanged(next: boolean) {
     state.abortCtrl = null;
     setOverlayText("");
     if (state.status === "translating") {
-      state.status = state.subtitleUrl ? "detected" : "idle";
+      state.transition(state.subtitleUrl ? "detected" : "idle", "disabled while translating");
     }
     broadcastState();
     return;
@@ -782,7 +734,7 @@ function watchForPlayback() {
       if (state.status === "translating") {
         state.abortCtrl?.abort();
         state.abortCtrl = null;
-        state.status = "detected";
+        state.transition("detected", "playback paused mid-translation");
         broadcastState();
       }
     }

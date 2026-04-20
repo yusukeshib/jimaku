@@ -46,10 +46,7 @@ describe("parseTtml", () => {
   });
 
   it("parses tick-based times using ttp:tickRate", () => {
-    const src = wrap(
-      `<p begin="10000000t" end="20000000t">tick</p>`,
-      ` ttp:tickRate="10000000"`,
-    );
+    const src = wrap(`<p begin="10000000t" end="20000000t">tick</p>`, ` ttp:tickRate="10000000"`);
     const cues = parseTtml(src);
     expect(cues[0]).toEqual({ start: 1, end: 2, text: "tick" });
   });
@@ -66,9 +63,7 @@ describe("parseTtml", () => {
   });
 
   it("collapses runs of whitespace inside a paragraph", () => {
-    const src = wrap(
-      `<p begin="00:00:01" end="00:00:02">  hello   world  </p>`,
-    );
+    const src = wrap(`<p begin="00:00:01" end="00:00:02">  hello   world  </p>`);
     expect(parseTtml(src)[0].text).toBe("hello world");
   });
 });
