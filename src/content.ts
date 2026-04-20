@@ -126,12 +126,6 @@ function ensureOverlayHost(): ShadowRoot {
       line-height: 1.35;
       color: #fff;
       text-align: center;
-      text-shadow:
-        -1px -1px 0 #000, 1px -1px 0 #000,
-        -1px  1px 0 #000, 1px  1px 0 #000,
-        0 0 4px rgba(0,0,0,0.9);
-      background: rgba(0,0,0,0.25);
-      border-radius: 6px;
       white-space: pre-wrap;
       pointer-events: none;
     }
@@ -177,9 +171,24 @@ function updateOverlayPosition() {
       line.style.top = `${centerY}px`;
       line.style.transform = "translate(-50%, -50%)";
     } else {
-      // Stack above the native caption text with a 4px gap.
-      line.style.top = `${rect.top - 4}px`;
-      line.style.transform = "translate(-50%, -100%)";
+      // Prime Video puts captions near the bottom most of the time, but
+      // occasionally at the top (narration, on-screen labels). Stack above
+      // bottom-placed captions and below top-placed ones so the translated
+      // line always stays on-screen.
+      const video = state.video ?? findVideo();
+      const videoMidY = video
+        ? video.getBoundingClientRect().top + video.getBoundingClientRect().height / 2
+        : window.innerHeight / 2;
+      const captionCenterY = rect.top + rect.height / 2;
+      if (captionCenterY < videoMidY) {
+        // Upper half — stack below.
+        line.style.top = `${rect.top + rect.height + 4}px`;
+        line.style.transform = "translate(-50%, 0)";
+      } else {
+        // Lower half — stack above.
+        line.style.top = `${rect.top - 4}px`;
+        line.style.transform = "translate(-50%, -100%)";
+      }
     }
     return;
   }
