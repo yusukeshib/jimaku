@@ -132,6 +132,50 @@
       }
       .meta a { color: #0366d6; text-decoration: none; }
       .meta a:hover { text-decoration: underline; }
+      .api-row {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid #eaeaea;
+      }
+      .api-row label {
+        display: block;
+        font-size: 11px;
+        color: #666;
+        margin-bottom: 4px;
+      }
+      .api-row .row {
+        display: flex;
+        gap: 6px;
+      }
+      .api-row input {
+        flex: 1;
+        min-width: 0;
+        padding: 7px 8px;
+        font-size: 12px;
+        font-family: ui-monospace, SFMono-Regular, monospace;
+        color: #1a1a1a;
+        background: #fff;
+        border: 1px solid #ccc;
+        border-radius: 6px;
+      }
+      .api-row button {
+        flex: 0 0 auto;
+        width: auto;
+        padding: 7px 10px;
+        font-size: 12px;
+      }
+      .api-row .hint {
+        font-size: 10px;
+        color: #b46800;
+        margin: 6px 0 0;
+        line-height: 1.4;
+      }
+      .api-row .saved {
+        font-size: 10px;
+        color: #0a7a2f;
+        margin: 6px 0 0;
+        min-height: 12px;
+      }
     </style>
   </head>
   <body>
@@ -167,9 +211,18 @@
         </div>
       </div>
 
+      <div class="api-row">
+        <label for="apiKey">Anthropic API key</label>
+        <div class="row">
+          <input id="apiKey" type="password" placeholder="sk-ant-..." autocomplete="off" spellcheck="false" />
+          <button id="saveApiKey" type="button">Save</button>
+        </div>
+        <p class="saved" id="apiKeyStatus"></p>
+        <p class="hint">Stored in chrome.storage.local in plaintext. Not for shared machines.</p>
+      </div>
+
       <p class="meta">
         <span id="modelLabel"></span>
-        · <a href="#" id="openOptions">Settings</a>
       </p>
     </div>
     <script type="module" src="./popup.ts"></script>

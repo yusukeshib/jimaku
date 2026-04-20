@@ -1,8 +1,10 @@
 import {
   DEFAULT_TARGET_LANGUAGE,
+  getApiKey,
   getHideOriginal,
   getShowTranslated,
   getTargetLanguage,
+  setApiKey,
   setHideOriginal,
   setShowTranslated,
   setTargetLanguage,
@@ -57,10 +59,12 @@ const action = document.getElementById("action") as HTMLButtonElement;
 const regenerateBtn = document.getElementById("regenerate") as HTMLButtonElement;
 const err = document.getElementById("err") as HTMLParagraphElement;
 const modelLabel = document.getElementById("modelLabel") as HTMLSpanElement;
-const openOptions = document.getElementById("openOptions") as HTMLAnchorElement;
 const showTranslatedCb = document.getElementById("showTranslated") as HTMLInputElement;
 const hideOriginalCb = document.getElementById("hideOriginal") as HTMLInputElement;
 const languageSelect = document.getElementById("targetLanguage") as HTMLSelectElement;
+const apiKeyInput = document.getElementById("apiKey") as HTMLInputElement;
+const saveApiKeyBtn = document.getElementById("saveApiKey") as HTMLButtonElement;
+const apiKeyStatus = document.getElementById("apiKeyStatus") as HTMLParagraphElement;
 
 sub.textContent = "Translates Prime Video subtitles with Claude.";
 
@@ -82,9 +86,22 @@ function setModelLabel() {
   modelLabel.textContent = `${MODEL} · → ${currentLanguage}`;
 }
 
-openOptions.addEventListener("click", (e) => {
-  e.preventDefault();
-  chrome.runtime.openOptionsPage();
+void getApiKey().then((key) => {
+  if (key) apiKeyInput.value = key;
+});
+saveApiKeyBtn.addEventListener("click", async () => {
+  const key = apiKeyInput.value.trim();
+  if (!key) {
+    apiKeyStatus.style.color = "#b91c1c";
+    apiKeyStatus.textContent = "API key is empty.";
+    return;
+  }
+  await setApiKey(key);
+  apiKeyStatus.style.color = "#0a7a2f";
+  apiKeyStatus.textContent = "Saved.";
+  setTimeout(() => {
+    apiKeyStatus.textContent = "";
+  }, 2500);
 });
 
 void getShowTranslated().then((v) => {

@@ -6,8 +6,7 @@ Chrome extension (MV3) that translates Amazon Prime Video's English subtitles vi
 
 - `src/background.ts` — service worker; intercepts subtitle network requests, draws the action icon per status, relays badge/icon state per tab
 - `src/content.ts` — content script; renders the translated overlay on the player, positioned relative to Prime Video's native caption element
-- `src/popup/` — extension popup (status, progress, Generate/Regenerate, language dropdown, toggles)
-- `src/options/` — options page (API key, timing offset)
+- `src/popup/` — extension popup (status, progress, Generate/Regenerate, language dropdown, toggles, API key entry)
 - `src/lib/` — shared modules (cache, translate, subtitle parsers)
 - `manifest.config.ts` — MV3 manifest (built via `@crxjs/vite-plugin`)
 - `eval/` — offline translation eval harness (see `docs/translation-eval.md`)

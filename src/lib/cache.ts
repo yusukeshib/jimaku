@@ -41,16 +41,6 @@ export async function setApiKey(apiKey: string): Promise<void> {
   await chrome.storage.local.set({ apiKey });
 }
 
-export async function getOffsetSeconds(): Promise<number> {
-  const res = await chrome.storage.local.get("offsetSeconds");
-  const v = Number(res.offsetSeconds);
-  return Number.isFinite(v) ? v : 0;
-}
-
-export async function setOffsetSeconds(offsetSeconds: number): Promise<void> {
-  await chrome.storage.local.set({ offsetSeconds });
-}
-
 export const DEFAULT_TARGET_LANGUAGE = "Japanese";
 
 export async function getTargetLanguage(): Promise<string> {

@@ -7,11 +7,6 @@ export default defineConfig({
   build: {
     target: "esnext",
     emptyOutDir: true,
-    rollupOptions: {
-      input: {
-        options: "src/options/options.html",
-      },
-    },
   },
   server: {
     port: 5173,

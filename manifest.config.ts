@@ -32,7 +32,6 @@ export default defineManifest({
       run_at: "document_idle",
     },
   ],
-  options_page: "src/options/options.html",
   action: {
     default_title: "Jimaku",
     default_popup: "src/popup/popup.html",

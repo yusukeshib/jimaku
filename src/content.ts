@@ -4,7 +4,6 @@ import {
   getApiKey,
   getCache,
   getHideOriginal,
-  getOffsetSeconds,
   getShowTranslated,
   getTargetLanguage,
   setCache,
@@ -53,7 +52,6 @@ type State = {
   error: string | null;
   abortCtrl: AbortController | null;
   cleanupVideo: (() => void) | null;
-  offsetSeconds: number;
   showTranslated: boolean;
   hideOriginal: boolean;
   targetLanguage: string;
@@ -69,7 +67,6 @@ const state: State = {
   error: null,
   abortCtrl: null,
   cleanupVideo: null,
-  offsetSeconds: 0,
   showTranslated: true,
   hideOriginal: false,
   targetLanguage: DEFAULT_TARGET_LANGUAGE,
@@ -205,7 +202,7 @@ function repaintOverlay() {
   }
   const v = state.video;
   if (!v) return;
-  const cue = findCueAt(v.currentTime - state.offsetSeconds);
+  const cue = findCueAt(v.currentTime);
   setOverlayText(cue ? cue.text : "");
   updateOverlayPosition();
 }
@@ -262,7 +259,7 @@ function attachVideoSync(video: HTMLVideoElement) {
       setOverlayText("");
       return;
     }
-    const cue = findCueAt(video.currentTime - state.offsetSeconds);
+    const cue = findCueAt(video.currentTime);
     setOverlayText(cue ? cue.text : "");
     updateOverlayPosition();
   };
@@ -475,9 +472,6 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
 const readyMsg: ContentReady = { type: "CONTENT_READY" };
 chrome.runtime.sendMessage(readyMsg).catch(() => {});
 
-void getOffsetSeconds().then((s) => {
-  state.offsetSeconds = s;
-});
 void getShowTranslated().then((v) => {
   state.showTranslated = v;
   repaintOverlay();
@@ -491,9 +485,6 @@ void getTargetLanguage().then((l) => {
 });
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.offsetSeconds) {
-    state.offsetSeconds = Number(changes.offsetSeconds.newValue) || 0;
-  }
   if (changes.showTranslated) {
     state.showTranslated = changes.showTranslated.newValue !== false;
     repaintOverlay();
