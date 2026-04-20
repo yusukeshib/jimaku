@@ -1,3 +1,4 @@
+import { normalizeCueText } from "./content/cueList";
 import { state } from "./content/state";
 import {
   DEFAULT_TARGET_LANGUAGE,
@@ -249,95 +250,26 @@ function applyHideOriginal() {
   updateOverlayPosition();
 }
 
-function findCueAt(seconds: number): TranslatedCue | null {
-  const cues = state.cues;
-  const starts = state.sortedStarts;
-  if (!cues || !starts || cues.length === 0) return null;
-  // binary search for the last cue whose start <= seconds
-  let lo = 0;
-  let hi = starts.length - 1;
-  let idx = -1;
-  while (lo <= hi) {
-    const mid = (lo + hi) >>> 1;
-    if (starts[mid] <= seconds) {
-      idx = mid;
-      lo = mid + 1;
-    } else {
-      hi = mid - 1;
-    }
-  }
-  if (idx === -1) return null;
-  const cue = cues[idx];
-  return seconds <= cue.end ? cue : null;
-}
-
-function setCues(cues: TranslatedCue[]) {
-  const sorted = [...cues].sort((a, b) => a.start - b.start);
-  state.cues = sorted;
-  state.sortedStarts = sorted.map((c) => c.start);
-}
-
-// Insert a streamed cue into the sorted cue list. Streaming emits in
-// chronological order so inserts are almost always at the tail (O(1)); we
-// keep a safe fallback for any out-of-order emission.
-function appendStreamingCue(cue: TranslatedCue) {
-  if (!state.cues) {
-    state.cues = [];
-    state.sortedStarts = [];
-  }
-  const arr = state.cues;
-  const starts = state.sortedStarts as number[];
-  const last = arr[arr.length - 1];
-  if (!last || last.start <= cue.start) {
-    arr.push(cue);
-    starts.push(cue.start);
-  } else {
-    let lo = 0;
-    let hi = arr.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1;
-      if (starts[mid] <= cue.start) lo = mid + 1;
-      else hi = mid;
-    }
-    arr.splice(lo, 0, cue);
-    starts.splice(lo, 0, cue.start);
-  }
-}
-
-function normalizeCueText(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/\s+/g, " ")
-    .replace(/[^\p{L}\p{N} ]+/gu, "")
-    .trim();
-}
-
-function setSourceCues(cues: Cue[]) {
-  state.sourceCues = cues;
-  const map = new Map<string, Cue[]>();
-  for (const c of cues) {
-    const key = normalizeCueText(c.text);
-    if (!key) continue;
-    const arr = map.get(key);
-    if (arr) arr.push(c);
-    else map.set(key, [c]);
-  }
-  state.sourceByNormText = map;
-}
+// Cue storage + search lives in ./content/cueList (CueList, SourceCueIndex).
+// Thin wrappers keep the existing call sites short.
+const findCueAt = (seconds: number) => state.cues.findAt(seconds);
+const setCues = (cues: TranslatedCue[]) => state.cues.set(cues);
+const appendStreamingCue = (cue: TranslatedCue) => state.cues.append(cue);
+const setSourceCues = (cues: Cue[]) => state.sourceIndex.set(cues);
 
 function attachCalibration(video: HTMLVideoElement) {
   state.cleanupCalibration?.();
 
   let lastSeenText = "";
   const tryCalibrate = () => {
-    if (!state.sourceByNormText) return;
+    if (state.sourceIndex.size === 0) return;
     const el = nativeCaptionEl();
     const raw = el?.textContent ?? "";
     if (raw === lastSeenText) return;
     lastSeenText = raw;
     const key = normalizeCueText(raw);
     if (!key) return;
-    const matches = state.sourceByNormText.get(key);
+    const matches = state.sourceIndex.lookupByText(key);
     if (!matches || matches.length === 0) return;
     // Pick the cue whose start is closest to (currentTime - currentOffset).
     // On first calibration offset is 0 so we fall back to raw currentTime;
@@ -441,8 +373,8 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
 
   try {
     let cues: Cue[];
-    if (state.sourceCues && state.sourceCues.length > 0) {
-      cues = state.sourceCues;
+    if (state.sourceIndex.size > 0) {
+      cues = state.sourceIndex.cues;
     } else {
       const text = await fetchSubtitleText(targetUrl, signal);
       cues = await loadCues(targetUrl, text, fetchSubtitleText, signal);
@@ -454,8 +386,7 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
     if (resumeFrom && resumeFrom.length > 0) {
       setCues(resumeFrom);
     } else {
-      state.cues = [];
-      state.sortedStarts = [];
+      state.cues.clear();
     }
     state.progress = { done: resumeFrom?.length ?? 0, total: cues.length };
     broadcastState();
@@ -482,12 +413,11 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
         const now = Date.now();
         if (now - lastCacheWrite >= CACHE_WRITE_INTERVAL_MS) {
           lastCacheWrite = now;
-          const partial = state.cues;
-          if (partial && partial.length > 0) {
+          if (state.cues.size > 0) {
             void setCache(targetUrl, targetLang, {
               translatedAt: now,
               model: MODEL,
-              cues: partial.slice(),
+              cues: state.cues.snapshot(),
               sourceCues: cues,
               complete: false,
             });
@@ -746,7 +676,7 @@ function watchForVideo() {
   const tick = () => {
     throttle = null;
     const video = findVideo();
-    if (video && video !== state.video && state.cues) {
+    if (video && video !== state.video && state.cues.size > 0) {
       attachVideoSync(video);
     }
   };

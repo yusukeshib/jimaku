@@ -1,5 +1,6 @@
 import { DEFAULT_TARGET_LANGUAGE } from "../lib/cache";
-import type { Cue, Status, TranslatedCue } from "../types";
+import type { Status } from "../types";
+import { CueList, SourceCueIndex } from "./cueList";
 
 type Listener = () => void;
 
@@ -18,10 +19,8 @@ class ContentState {
   progress: { done: number; total: number } | null = null;
   error: string | null = null;
   timeOffset = 0;
-  cues: TranslatedCue[] | null = null;
-  sortedStarts: number[] | null = null;
-  sourceCues: Cue[] | null = null;
-  sourceByNormText: Map<string, Cue[]> | null = null;
+  readonly cues = new CueList();
+  readonly sourceIndex = new SourceCueIndex();
 
   // --- Runtime resources owned by other modules but referenced here ---
   video: HTMLVideoElement | null = null;
@@ -60,10 +59,8 @@ class ContentState {
     this.abortCtrl = null;
     this.cleanupVideo?.();
     this.cleanupCalibration?.();
-    this.cues = null;
-    this.sortedStarts = null;
-    this.sourceCues = null;
-    this.sourceByNormText = null;
+    this.cues.clear();
+    this.sourceIndex.clear();
     this.timeOffset = 0;
     this.progress = null;
     this.error = null;
