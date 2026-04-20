@@ -115,6 +115,9 @@ function serializeInput(
 type ParsedLine = { start: number; end: number; text: string };
 
 function parseTimeValue(s: string): number {
+  // Reject empty / whitespace explicitly: `Number("")` is 0, which would
+  // silently turn a missing attribute into "time 0".
+  if (!s || !s.trim()) return Number.NaN;
   const v = Number(s);
   if (Number.isFinite(v)) return v;
   // Accept clock-time style HH:MM:SS(.fff) in case the model ignores our "seconds" instruction.
@@ -442,3 +445,14 @@ export async function translateCues(
 }
 
 export { AbortError };
+
+// Exported for unit tests; not part of the public surface.
+export const __test__ = {
+  parseTimeValue,
+  parseOutput,
+  parseLineXml,
+  sanitizeOutput,
+  escapeXml,
+  unescapeXml,
+  serializeInput,
+};

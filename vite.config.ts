@@ -1,6 +1,4 @@
-// @ts-expect-error — @types/node isn't installed; we only need this at build-time.
 import { execSync } from "node:child_process";
-// @ts-expect-error — see above.
 import { watch as fsWatch } from "node:fs";
 import { crx } from "@crxjs/vite-plugin";
 import { defineConfig, type Plugin } from "vite";
