@@ -126,6 +126,8 @@ function ensureOverlayHost(): ShadowRoot {
       line-height: 1.35;
       color: #fff;
       text-align: center;
+      background: rgba(0, 0, 0, 0.55);
+      border-radius: 6px;
       white-space: pre-wrap;
       pointer-events: none;
     }
