@@ -1,34 +1,27 @@
-import { attachCalibration } from "./content/calibration";
-import {
-  applyHideOriginal as applyHideOriginalImpl,
-  setOverlayText,
-  updateOverlayPosition as updateOverlayPositionImpl,
-} from "./content/overlay";
-import { findVideo, isMainVideoPlaying, watchForPlayback, watchForVideo } from "./content/playback";
+import { applyHideOriginal, updateOverlayPosition } from "./content/overlay";
+import { watchForPlayback, watchForVideo } from "./content/playback";
 import { state } from "./content/state";
 import { createTrackResolver } from "./content/trackResolver";
 import {
+  applySubtitleUrl,
+  configureTranslation,
+  onEnabledChanged,
+  onPlaybackChange,
+  onTargetLanguageChanged,
+  onVideoFound,
+  repaintOverlay,
+  resetForTabReset,
+} from "./content/translation";
+import {
   DEFAULT_TARGET_LANGUAGE,
-  getApiKey,
-  getCache,
   getEnabled,
   getHideOriginal,
   getShowTranslated,
   getTargetLanguage,
-  setCache,
 } from "./lib/cache";
-import { loadCues } from "./lib/subtitle";
-import { AbortError, MODEL, translateCues } from "./lib/translate";
-import type {
-  ContentReady,
-  Cue,
-  ExtensionMessage,
-  StateSnapshot,
-  StateUpdate,
-  TranslatedCue,
-} from "./types";
+import type { ContentReady, ExtensionMessage, StateSnapshot, StateUpdate } from "./types";
 
-// State lives in ./content/state; overlay DOM in ./content/overlay.
+// ---------- Snapshot + broadcast ----------
 
 function findTitle(): string | null {
   // Prefer explicit player-chrome titles; fall back to the document heading
@@ -62,308 +55,26 @@ function broadcastState() {
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
 
-function positionContext() {
-  return { video: state.video ?? findVideo(), hideOriginal: state.hideOriginal };
-}
+// ---------- Wiring ----------
 
-function updateOverlayPosition() {
-  updateOverlayPositionImpl(positionContext());
-}
+configureTranslation({
+  broadcast: broadcastState,
+  getPosContext: () => ({ video: state.video, hideOriginal: state.hideOriginal }),
+});
 
-function repaintOverlay() {
-  if (!state.showTranslated) {
-    setOverlayText("");
-    return;
-  }
-  const v = state.video;
-  if (!v) return;
-  const cue = findCueAt(v.currentTime - state.timeOffset);
-  setOverlayText(cue ? cue.text : "");
-  updateOverlayPosition();
-}
-
-function applyHideOriginal() {
-  applyHideOriginalImpl(state.hideOriginal);
-  updateOverlayPosition();
-}
-
-// Cue storage + search lives in ./content/cueList (CueList, SourceCueIndex).
-// Thin wrappers keep the existing call sites short.
-const findCueAt = (seconds: number) => state.cues.findAt(seconds);
-const setCues = (cues: TranslatedCue[]) => state.cues.set(cues);
-const appendStreamingCue = (cue: TranslatedCue) => state.cues.append(cue);
-const setSourceCues = (cues: Cue[]) => state.sourceIndex.set(cues);
-
-function attachVideoSync(video: HTMLVideoElement) {
-  if (state.video === video) return;
-  state.cleanupVideo?.();
-  state.cleanupCalibration?.();
-  state.video = video;
-
-  const onTimeUpdate = () => {
-    if (!state.showTranslated) {
-      setOverlayText("");
-      return;
-    }
-    const cue = findCueAt(video.currentTime - state.timeOffset);
-    setOverlayText(cue ? cue.text : "");
-    updateOverlayPosition();
-  };
-  video.addEventListener("timeupdate", onTimeUpdate);
-
-  const disposeCalibration = attachCalibration(video, () => {
-    if (!state.showTranslated) return;
-    const cue = findCueAt(video.currentTime - state.timeOffset);
-    setOverlayText(cue ? cue.text : "");
-    updateOverlayPosition();
-  });
-
-  state.cleanupVideo = () => {
-    video.removeEventListener("timeupdate", onTimeUpdate);
-    state.video = null;
-    state.cleanupVideo = null;
-  };
-  state.cleanupCalibration = () => {
-    disposeCalibration();
-    state.cleanupCalibration = null;
-  };
-}
-
-async function runTranslation(resumeFrom: TranslatedCue[] | null) {
-  if (!state.enabled || !state.subtitleUrl) return;
-  // Guard on the abort controller, not on status. Status can lag (e.g. an
-  // aborted prior run's `finally` hasn't executed yet) which would wrongly
-  // block a freshly-kicked translation.
-  if (state.abortCtrl !== null) return;
-
-  const apiKey = await getApiKey();
-  if (!apiKey) {
-    state.error = "No API key set. Open the extension options to add one.";
-    state.transition("error", "missing api key");
-    broadcastState();
-    return;
-  }
-
-  state.error = null;
-  state.transition("translating", "runTranslation start");
-  const ctrl = new AbortController();
-  state.abortCtrl = ctrl;
-  const { signal } = ctrl;
-
-  const targetUrl = state.subtitleUrl;
-  const targetLang = state.targetLanguage;
-  const stillCurrent = () =>
-    state.enabled && state.subtitleUrl === targetUrl && state.targetLanguage === targetLang;
-
-  try {
-    let cues: Cue[];
-    if (state.sourceIndex.size > 0) {
-      cues = state.sourceIndex.cues;
-    } else {
-      const text = await fetchSubtitleText(targetUrl, signal);
-      cues = await loadCues(targetUrl, text, fetchSubtitleText, signal);
-      if (cues.length === 0) throw new Error("Subtitle parse produced no cues");
-      setSourceCues(cues);
-    }
-
-    // Seed or trust existing cue state for incremental rendering.
-    if (resumeFrom && resumeFrom.length > 0) {
-      setCues(resumeFrom);
-    } else {
-      state.cues.clear();
-    }
-    state.progress = { done: resumeFrom?.length ?? 0, total: cues.length };
-    broadcastState();
-
-    const earlyVideo = findVideo();
-    if (earlyVideo) attachVideoSync(earlyVideo);
-
-    let lastCacheWrite = 0;
-    const CACHE_WRITE_INTERVAL_MS = 2000;
-
-    const translated = await translateCues(cues, apiKey, {
-      signal,
-      targetLanguage: targetLang,
-      resumeFrom: resumeFrom ?? undefined,
-      onProgress: (done, total) => {
-        if (!stillCurrent()) return;
-        state.progress = { done, total };
-        broadcastState();
-      },
-      onCue: (cue) => {
-        if (!stillCurrent()) return;
-        appendStreamingCue(cue);
-        if (state.video) repaintOverlay();
-        const now = Date.now();
-        if (now - lastCacheWrite >= CACHE_WRITE_INTERVAL_MS) {
-          lastCacheWrite = now;
-          if (state.cues.size > 0) {
-            void setCache(targetUrl, targetLang, {
-              translatedAt: now,
-              model: MODEL,
-              cues: state.cues.snapshot(),
-              sourceCues: cues,
-              complete: false,
-            });
-          }
-        }
-      },
-    });
-
-    if (!stillCurrent()) return;
-
-    setCues(translated);
-    state.transition("ready", "runTranslation complete");
-    broadcastState();
-
-    await setCache(targetUrl, targetLang, {
-      translatedAt: Date.now(),
-      model: MODEL,
-      cues: translated,
-      sourceCues: cues,
-      complete: true,
-    });
-  } catch (e) {
-    if (e instanceof AbortError || (e as Error).name === "AbortError") return;
-    if (!stillCurrent()) return;
-    state.error = e instanceof Error ? e.message : String(e);
-    state.transition("error", "runTranslation threw");
-    broadcastState();
-  } finally {
-    // Only null if we still own the slot; a concurrent restart may have
-    // replaced it with its own controller.
-    if (state.abortCtrl === ctrl) state.abortCtrl = null;
-  }
-}
-
-async function fetchSubtitleText(url: string, signal?: AbortSignal): Promise<string> {
-  const res = await fetch(url, { credentials: "omit", signal });
-  if (!res.ok) throw new Error(`Failed to fetch subtitles: ${res.status}`);
-  return await res.text();
-}
-
-function resetState() {
-  clearPerUrlState();
-  state.subtitleUrl = null;
-  trackResolver.clear();
-  state.transition("idle", "tab reset");
-  broadcastState();
-}
-
-async function hydrateSourceCues(url: string, cached: { sourceCues?: Cue[] }) {
-  if (cached.sourceCues && cached.sourceCues.length > 0) {
-    setSourceCues(cached.sourceCues);
-    return;
-  }
-  try {
-    const text = await fetchSubtitleText(url);
-    const parsed = await loadCues(url, text, fetchSubtitleText);
-    if (parsed.length > 0) setSourceCues(parsed);
-  } catch {
-    // calibration just won't run — not fatal
-  }
-}
-
-// Resolver owns the candidate pool and picks the active track (see
-// ./content/trackResolver). Wired with callbacks so the orchestrator
-// stays in control of URL changes.
 const trackResolver = createTrackResolver({
   getCurrentUrl: () => state.subtitleUrl,
   onResolved: (url) => void applySubtitleUrl(url),
 });
 
-// Clear per-URL state via the store, then blank the overlay (owned here).
-function clearPerUrlState() {
-  state.clearPerUrl();
-  setOverlayText("");
+// ---------- Overlay lifecycle ----------
+
+function reapplyOverlayChrome() {
+  applyHideOriginal(state.hideOriginal);
+  updateOverlayPosition({ video: state.video, hideOriginal: state.hideOriginal });
 }
 
-// Given state.subtitleUrl is set, hydrate from cache (if any) and start or
-// resume translation when appropriate.
-async function loadOrTranslate() {
-  if (!state.subtitleUrl) return;
-  const cached = await getCache(state.subtitleUrl, state.targetLanguage);
-  if (cached) {
-    setCues(cached.cues);
-    await hydrateSourceCues(state.subtitleUrl, cached);
-    const video = findVideo();
-    if (video) attachVideoSync(video);
-    const isPartial = cached.complete === false;
-    if (isPartial && state.enabled && isMainVideoPlaying()) {
-      void runTranslation(cached.cues.slice());
-      return;
-    }
-    // Partial cache without playback → stay in "detected" so the popup and
-    // icon reflect that we'll resume on play, not that we're done.
-    state.transition(isPartial ? "detected" : "ready", "cache hydrated");
-    broadcastState();
-    return;
-  }
-  state.transition("detected", "subtitle detected, no cache");
-  broadcastState();
-  if (state.enabled && isMainVideoPlaying()) void runTranslation(null);
-}
-
-async function applySubtitleUrl(url: string) {
-  if (state.subtitleUrl === url) return;
-  clearPerUrlState();
-  state.subtitleUrl = url;
-  await loadOrTranslate();
-}
-
-async function onTargetLanguageChanged() {
-  const url = state.subtitleUrl;
-  clearPerUrlState();
-  if (!url) {
-    state.transition("idle", "target language changed, no URL");
-    broadcastState();
-    return;
-  }
-  state.subtitleUrl = url; // clearPerUrlState left it alone, but keep explicit
-  await loadOrTranslate();
-}
-
-function onEnabledChanged(next: boolean) {
-  const prev = state.enabled;
-  state.enabled = next;
-  if (!next) {
-    // Turn off: cancel any in-flight translation and blank the overlay.
-    state.abortCtrl?.abort();
-    state.abortCtrl = null;
-    setOverlayText("");
-    if (state.status === "translating") {
-      state.transition(state.subtitleUrl ? "detected" : "idle", "disabled while translating");
-    }
-    broadcastState();
-    return;
-  }
-  broadcastState();
-  if (!prev && state.subtitleUrl && state.status !== "translating") {
-    void loadOrTranslate();
-  }
-}
-
-// Translation lifecycle driven by playback transitions. `watchForPlayback`
-// polls the DOM every 500ms (robust to PV's trailer→episode element swap
-// where `play` can fire before `duration` is known).
-function onPlaybackChange(playing: boolean) {
-  if (playing) {
-    if (state.subtitleUrl && state.status !== "translating") void loadOrTranslate();
-    return;
-  }
-  if (state.status === "translating") {
-    state.abortCtrl?.abort();
-    state.abortCtrl = null;
-    state.transition("detected", "playback paused mid-translation");
-    broadcastState();
-  }
-}
-
-// Attach the overlay to whichever video appears; gated on "we have cues to
-// show" so we don't steal the timeupdate handler before translation starts.
-function onVideoFound(video: HTMLVideoElement) {
-  if (video !== state.video && state.cues.size > 0) attachVideoSync(video);
-}
+// ---------- chrome.runtime messaging ----------
 
 chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
   switch (raw.type) {
@@ -371,7 +82,8 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
       trackResolver.add(raw.url);
       break;
     case "TAB_RESET":
-      resetState();
+      trackResolver.clear();
+      resetForTabReset();
       break;
     case "POPUP_GET_STATE":
       broadcastState();
@@ -379,9 +91,10 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
   }
 });
 
-// Load all settings before announcing readiness, so the message handlers
-// don't act on default values (e.g. auto-starting when user actually has
-// enabled=false).
+// ---------- Bootstrap ----------
+
+// Load all settings before announcing readiness so message handlers don't
+// act on default values (e.g. auto-start when the user has enabled=false).
 void (async () => {
   const [showTranslated, hideOriginal, targetLanguage, enabled] = await Promise.all([
     getShowTranslated(),
@@ -393,11 +106,12 @@ void (async () => {
   state.hideOriginal = hideOriginal;
   state.targetLanguage = targetLanguage;
   state.enabled = enabled;
-  applyHideOriginal();
+  reapplyOverlayChrome();
   repaintOverlay();
   const readyMsg: ContentReady = { type: "CONTENT_READY" };
   chrome.runtime.sendMessage(readyMsg).catch(() => {});
 })();
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.showTranslated) {
@@ -406,7 +120,7 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
   if (changes.hideOriginal) {
     state.hideOriginal = changes.hideOriginal.newValue === true;
-    applyHideOriginal();
+    reapplyOverlayChrome();
   }
   if (changes.targetLanguage) {
     const v = changes.targetLanguage.newValue;
@@ -418,11 +132,17 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
+// ---------- DOM lifecycle ----------
+
 watchForVideo(onVideoFound);
 watchForPlayback(onPlaybackChange);
 
-window.addEventListener("resize", updateOverlayPosition);
-document.addEventListener("fullscreenchange", updateOverlayPosition);
+window.addEventListener("resize", () =>
+  updateOverlayPosition({ video: state.video, hideOriginal: state.hideOriginal }),
+);
+document.addEventListener("fullscreenchange", () =>
+  updateOverlayPosition({ video: state.video, hideOriginal: state.hideOriginal }),
+);
 // When the page is going away (tab close, navigation), abort any in-flight
 // translation so the fetch is cancelled and the partial cache write we did
 // during streaming is what the next visit picks up.
