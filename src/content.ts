@@ -1,4 +1,4 @@
-import { getApiKey, getCache, getOffsetSeconds, setCache } from "./lib/cache";
+import { deleteCache, getApiKey, getCache, getOffsetSeconds, setCache } from "./lib/cache";
 import { loadCues } from "./lib/subtitle";
 import { AbortError, MODEL, translateCues } from "./lib/translate";
 import type {
@@ -229,6 +229,23 @@ async function startTranslation() {
   }
 }
 
+async function regenerate() {
+  const url = state.subtitleUrl;
+  if (!url) return;
+  state.abortCtrl?.abort();
+  state.abortCtrl = null;
+  state.cleanupVideo?.();
+  setOverlayText("");
+  state.cues = null;
+  state.sortedStarts = null;
+  state.progress = null;
+  state.error = null;
+  await deleteCache(url);
+  state.status = "detected";
+  broadcastState();
+  await startTranslation();
+}
+
 async function fetchSubtitleText(url: string, signal?: AbortSignal): Promise<string> {
   const res = await fetch(url, { credentials: "omit", signal });
   if (!res.ok) throw new Error(`Failed to fetch subtitles: ${res.status}`);
@@ -301,6 +318,9 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
       break;
     case "POPUP_START":
       void startTranslation();
+      break;
+    case "POPUP_REGENERATE":
+      void regenerate();
       break;
   }
 });

@@ -46,6 +46,10 @@ export type PopupStart = {
   type: "POPUP_START";
 };
 
+export type PopupRegenerate = {
+  type: "POPUP_REGENERATE";
+};
+
 export type StateUpdate = {
   type: "STATE_UPDATE";
   state: StateSnapshot;
@@ -57,4 +61,5 @@ export type ExtensionMessage =
   | TabReset
   | PopupGetState
   | PopupStart
+  | PopupRegenerate
   | StateUpdate;

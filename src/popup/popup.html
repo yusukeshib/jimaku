@@ -69,6 +69,13 @@
       button:hover:not([disabled]) { background: #333; }
       button[disabled] { opacity: 0.6; cursor: default; }
       button.hidden { display: none; }
+      button.secondary {
+        background: transparent;
+        color: #555;
+        border: 1px solid #ccc;
+        margin-top: 8px;
+      }
+      button.secondary:hover:not([disabled]) { background: #f0f0f0; color: #1a1a1a; }
       .err {
         font-size: 12px;
         color: #b91c1c;
@@ -98,6 +105,7 @@
       <div class="bar hidden" id="bar"><div id="barFill"></div></div>
 
       <button id="action" class="hidden" type="button">Generate</button>
+      <button id="regenerate" class="secondary hidden" type="button">Regenerate</button>
 
       <p class="err" id="err" style="display:none;"></p>
 

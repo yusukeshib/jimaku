@@ -27,6 +27,11 @@ export async function setCache(url: string, entry: CacheEntry): Promise<void> {
   await chrome.storage.local.set({ [key]: entry });
 }
 
+export async function deleteCache(url: string): Promise<void> {
+  const key = await keyForUrl(url);
+  await chrome.storage.local.remove(key);
+}
+
 export async function getApiKey(): Promise<string | null> {
   const res = await chrome.storage.local.get("apiKey");
   return (res.apiKey as string | undefined) ?? null;
