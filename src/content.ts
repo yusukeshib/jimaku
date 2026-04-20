@@ -1,3 +1,4 @@
+import { attachCalibration } from "./content/calibration";
 import { normalizeCueText } from "./content/cueList";
 import {
   applyHideOriginal as applyHideOriginalImpl,
@@ -94,77 +95,13 @@ const setCues = (cues: TranslatedCue[]) => state.cues.set(cues);
 const appendStreamingCue = (cue: TranslatedCue) => state.cues.append(cue);
 const setSourceCues = (cues: Cue[]) => state.sourceIndex.set(cues);
 
-function attachCalibration(video: HTMLVideoElement) {
-  state.cleanupCalibration?.();
-
-  let lastSeenText = "";
-  const tryCalibrate = () => {
-    if (state.sourceIndex.size === 0) return;
-    const el = nativeCaptionEl();
-    const raw = el?.textContent ?? "";
-    if (raw === lastSeenText) return;
-    lastSeenText = raw;
-    const key = normalizeCueText(raw);
-    if (!key) return;
-    const matches = state.sourceIndex.lookupByText(key);
-    if (!matches || matches.length === 0) return;
-    // Pick the cue whose start is closest to (currentTime - currentOffset).
-    // On first calibration offset is 0 so we fall back to raw currentTime;
-    // that's OK because the cue we see in the DOM is the one Prime Video
-    // has rendered for "now".
-    const t = video.currentTime;
-    const target = t - state.timeOffset;
-    const best = matches.reduce((b, c) =>
-      Math.abs(c.start - target) < Math.abs(b.start - target) ? c : b,
-    );
-    const newOffset = t - best.start;
-    if (Math.abs(newOffset - state.timeOffset) < 0.05) return;
-    state.timeOffset = newOffset;
-    if (state.showTranslated) {
-      const cue = findCueAt(video.currentTime - state.timeOffset);
-      setOverlayText(cue ? cue.text : "");
-      updateOverlayPosition();
-    }
-  };
-
-  // Scope narrowly when possible: observing the whole body subtree with
-  // characterData generates far more noise than we need.
-  let textObserver: MutationObserver | null = null;
-  let scoped: Element | null = null;
-  const scopeTo = (el: Element) => {
-    if (scoped === el) return;
-    textObserver?.disconnect();
-    scoped = el;
-    textObserver = new MutationObserver(tryCalibrate);
-    textObserver.observe(el, { childList: true, subtree: true, characterData: true });
-    tryCalibrate();
-  };
-
-  const existing = document.querySelector(".atvwebplayersdk-captions-text");
-  if (existing) scopeTo(existing);
-
-  // The caption element can be (re)mounted by the player; watch for it.
-  const discoverObserver = new MutationObserver(() => {
-    const el = document.querySelector(".atvwebplayersdk-captions-text");
-    if (el && el !== scoped) scopeTo(el);
-  });
-  discoverObserver.observe(document.body ?? document.documentElement, {
-    childList: true,
-    subtree: true,
-  });
-
-  state.cleanupCalibration = () => {
-    textObserver?.disconnect();
-    discoverObserver.disconnect();
-    state.cleanupCalibration = null;
-  };
-}
-
 function attachVideoSync(video: HTMLVideoElement) {
   if (state.video === video) return;
   state.cleanupVideo?.();
+  state.cleanupCalibration?.();
   state.video = video;
-  const onUpdate = () => {
+
+  const onTimeUpdate = () => {
     if (!state.showTranslated) {
       setOverlayText("");
       return;
@@ -173,13 +110,24 @@ function attachVideoSync(video: HTMLVideoElement) {
     setOverlayText(cue ? cue.text : "");
     updateOverlayPosition();
   };
-  video.addEventListener("timeupdate", onUpdate);
+  video.addEventListener("timeupdate", onTimeUpdate);
+
+  const disposeCalibration = attachCalibration(video, () => {
+    if (!state.showTranslated) return;
+    const cue = findCueAt(video.currentTime - state.timeOffset);
+    setOverlayText(cue ? cue.text : "");
+    updateOverlayPosition();
+  });
+
   state.cleanupVideo = () => {
-    video.removeEventListener("timeupdate", onUpdate);
+    video.removeEventListener("timeupdate", onTimeUpdate);
     state.video = null;
     state.cleanupVideo = null;
   };
-  attachCalibration(video);
+  state.cleanupCalibration = () => {
+    disposeCalibration();
+    state.cleanupCalibration = null;
+  };
 }
 
 async function runTranslation(resumeFrom: TranslatedCue[] | null) {
