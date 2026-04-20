@@ -5,6 +5,7 @@ import {
   setOverlayText,
   updateOverlayPosition as updateOverlayPositionImpl,
 } from "./content/overlay";
+import { findVideo, isMainVideoPlaying, watchForPlayback, watchForVideo } from "./content/playback";
 import { state } from "./content/state";
 import {
   DEFAULT_TARGET_LANGUAGE,
@@ -59,18 +60,6 @@ function snapshot(): StateSnapshot {
 function broadcastState() {
   const msg: StateUpdate = { type: "STATE_UPDATE", state: snapshot() };
   chrome.runtime.sendMessage(msg).catch(() => {});
-}
-
-function findVideo(): HTMLVideoElement | null {
-  const videos = Array.from(document.querySelectorAll("video")).filter(
-    (v) => v.videoWidth > 0 && v.videoHeight > 0,
-  );
-  if (videos.length === 0) return null;
-  // Prime Video keeps a paused preroll ad <video> and the playing main <video>
-  // simultaneously; prefer the one that is actually playing, then the longest.
-  const playing = videos.filter((v) => !v.paused);
-  const pool = playing.length > 0 ? playing : videos;
-  return pool.reduce((best, v) => (v.duration > (best?.duration ?? 0) ? v : best), pool[0]);
 }
 
 function positionContext() {
@@ -414,16 +403,6 @@ function clearPerUrlState() {
   setOverlayText("");
 }
 
-// The main episode has a long duration; the background-looping trailer on
-// the detail page is short (~1–2 min). Translating before the user hits
-// Play wastes API calls on the wrong video, so gate on real playback.
-const MAIN_VIDEO_MIN_DURATION = 300;
-function isMainVideoPlaying(): boolean {
-  return Array.from(document.querySelectorAll("video")).some(
-    (v) => !v.paused && v.videoWidth > 0 && v.duration > MAIN_VIDEO_MIN_DURATION,
-  );
-}
-
 // Given state.subtitleUrl is set, hydrate from cache (if any) and start or
 // resume translation when appropriate.
 async function loadOrTranslate() {
@@ -489,53 +468,26 @@ function onEnabledChanged(next: boolean) {
   }
 }
 
-// Poll the video element state instead of relying on play/pause events. Prime
-// Video swaps video elements (trailer → episode) and the `play` event can
-// fire before `duration` is loaded, making event-based detection flaky.
-// Polling checks the truth at the end (is a long-duration video playing?)
-// every 500ms and reacts to transitions.
-function watchForPlayback() {
-  let wasPlayingMain = false;
-  window.setInterval(() => {
-    const playing = isMainVideoPlaying();
-    if (playing === wasPlayingMain) return;
-    wasPlayingMain = playing;
-    if (playing) {
-      // Transitioned to playing — start/resume if we have a URL and nothing
-      // is currently running.
-      if (state.subtitleUrl && state.status !== "translating") {
-        void loadOrTranslate();
-      }
-    } else {
-      // Transitioned to not-playing — abort any in-flight run. Partial cache
-      // from the last write (≤2s ago) survives; the next play resumes.
-      if (state.status === "translating") {
-        state.abortCtrl?.abort();
-        state.abortCtrl = null;
-        state.transition("detected", "playback paused mid-translation");
-        broadcastState();
-      }
-    }
-  }, 500);
+// Translation lifecycle driven by playback transitions. `watchForPlayback`
+// polls the DOM every 500ms (robust to PV's trailer→episode element swap
+// where `play` can fire before `duration` is known).
+function onPlaybackChange(playing: boolean) {
+  if (playing) {
+    if (state.subtitleUrl && state.status !== "translating") void loadOrTranslate();
+    return;
+  }
+  if (state.status === "translating") {
+    state.abortCtrl?.abort();
+    state.abortCtrl = null;
+    state.transition("detected", "playback paused mid-translation");
+    broadcastState();
+  }
 }
 
-function watchForVideo() {
-  let throttle: number | null = null;
-  const tick = () => {
-    throttle = null;
-    const video = findVideo();
-    if (video && video !== state.video && state.cues.size > 0) {
-      attachVideoSync(video);
-    }
-  };
-  const schedule = () => {
-    if (throttle !== null) return;
-    throttle = window.setTimeout(tick, 500);
-  };
-  const observer = new MutationObserver(schedule);
-  // Observe only the body subtree for childList changes, without attribute noise
-  const target = document.body ?? document.documentElement;
-  observer.observe(target, { childList: true, subtree: true });
+// Attach the overlay to whichever video appears; gated on "we have cues to
+// show" so we don't steal the timeupdate handler before translation starts.
+function onVideoFound(video: HTMLVideoElement) {
+  if (video !== state.video && state.cues.size > 0) attachVideoSync(video);
 }
 
 chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
@@ -591,8 +543,8 @@ chrome.storage.onChanged.addListener((changes, area) => {
   }
 });
 
-watchForVideo();
-watchForPlayback();
+watchForVideo(onVideoFound);
+watchForPlayback(onPlaybackChange);
 
 window.addEventListener("resize", updateOverlayPosition);
 document.addEventListener("fullscreenchange", updateOverlayPosition);
