@@ -14,6 +14,7 @@ export type CacheEntry = {
   translatedAt: number;
   model: string;
   cues: TranslatedCue[];
+  sourceCues?: Cue[];
 };
 
 export type Status = "idle" | "detected" | "translating" | "ready" | "error";

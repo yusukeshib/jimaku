@@ -12,6 +12,7 @@ import { loadCues } from "./lib/subtitle";
 import { AbortError, MODEL, translateCues } from "./lib/translate";
 import type {
   ContentReady,
+  Cue,
   ExtensionMessage,
   StateSnapshot,
   StateUpdate,
@@ -46,12 +47,16 @@ type State = {
   subtitleUrl: string | null;
   cues: TranslatedCue[] | null;
   sortedStarts: number[] | null;
+  sourceCues: Cue[] | null;
+  sourceByNormText: Map<string, Cue[]> | null;
+  timeOffset: number;
   video: HTMLVideoElement | null;
   status: Status;
   progress: { done: number; total: number } | null;
   error: string | null;
   abortCtrl: AbortController | null;
   cleanupVideo: (() => void) | null;
+  cleanupCalibration: (() => void) | null;
   showTranslated: boolean;
   hideOriginal: boolean;
   targetLanguage: string;
@@ -61,12 +66,16 @@ const state: State = {
   subtitleUrl: null,
   cues: null,
   sortedStarts: null,
+  sourceCues: null,
+  sourceByNormText: null,
+  timeOffset: 0,
   video: null,
   status: "idle",
   progress: null,
   error: null,
   abortCtrl: null,
   cleanupVideo: null,
+  cleanupCalibration: null,
   showTranslated: true,
   hideOriginal: false,
   targetLanguage: DEFAULT_TARGET_LANGUAGE,
@@ -213,7 +222,7 @@ function repaintOverlay() {
   }
   const v = state.video;
   if (!v) return;
-  const cue = findCueAt(v.currentTime);
+  const cue = findCueAt(v.currentTime - state.timeOffset);
   setOverlayText(cue ? cue.text : "");
   updateOverlayPosition();
 }
@@ -261,6 +270,95 @@ function setCues(cues: TranslatedCue[]) {
   state.sortedStarts = sorted.map((c) => c.start);
 }
 
+function normalizeCueText(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .replace(/[^\p{L}\p{N} ]+/gu, "")
+    .trim();
+}
+
+function setSourceCues(cues: Cue[]) {
+  state.sourceCues = cues;
+  const map = new Map<string, Cue[]>();
+  for (const c of cues) {
+    const key = normalizeCueText(c.text);
+    if (!key) continue;
+    const arr = map.get(key);
+    if (arr) arr.push(c);
+    else map.set(key, [c]);
+  }
+  state.sourceByNormText = map;
+}
+
+function attachCalibration(video: HTMLVideoElement) {
+  state.cleanupCalibration?.();
+
+  let lastSeenText = "";
+  const tryCalibrate = () => {
+    if (!state.sourceByNormText) return;
+    const el = document.querySelector(
+      ".atvwebplayersdk-captions-text",
+    ) as HTMLElement | null;
+    const raw = el?.textContent ?? "";
+    if (raw === lastSeenText) return;
+    lastSeenText = raw;
+    const key = normalizeCueText(raw);
+    if (!key) return;
+    const matches = state.sourceByNormText.get(key);
+    if (!matches || matches.length === 0) return;
+    // Pick the cue whose start is closest to (currentTime - currentOffset).
+    // On first calibration offset is 0 so we fall back to raw currentTime;
+    // that's OK because the cue we see in the DOM is the one Prime Video
+    // has rendered for "now".
+    const t = video.currentTime;
+    const target = t - state.timeOffset;
+    const best = matches.reduce((b, c) =>
+      Math.abs(c.start - target) < Math.abs(b.start - target) ? c : b,
+    );
+    const newOffset = t - best.start;
+    if (Math.abs(newOffset - state.timeOffset) < 0.05) return;
+    state.timeOffset = newOffset;
+    if (state.showTranslated) {
+      const cue = findCueAt(video.currentTime - state.timeOffset);
+      setOverlayText(cue ? cue.text : "");
+      updateOverlayPosition();
+    }
+  };
+
+  // Scope narrowly when possible: observing the whole body subtree with
+  // characterData generates far more noise than we need.
+  let textObserver: MutationObserver | null = null;
+  let scoped: Element | null = null;
+  const scopeTo = (el: Element) => {
+    if (scoped === el) return;
+    textObserver?.disconnect();
+    scoped = el;
+    textObserver = new MutationObserver(tryCalibrate);
+    textObserver.observe(el, { childList: true, subtree: true, characterData: true });
+    tryCalibrate();
+  };
+
+  const existing = document.querySelector(".atvwebplayersdk-captions-text");
+  if (existing) scopeTo(existing);
+
+  // The caption element can be (re)mounted by the player; watch for it.
+  const discoverObserver = new MutationObserver(() => {
+    const el = document.querySelector(".atvwebplayersdk-captions-text");
+    if (el && el !== scoped) scopeTo(el);
+  });
+  discoverObserver.observe(document.body ?? document.documentElement, {
+    childList: true,
+    subtree: true,
+  });
+
+  state.cleanupCalibration = () => {
+    textObserver?.disconnect();
+    discoverObserver.disconnect();
+    state.cleanupCalibration = null;
+  };
+}
+
 function attachVideoSync(video: HTMLVideoElement) {
   if (state.video === video) return;
   state.cleanupVideo?.();
@@ -270,7 +368,7 @@ function attachVideoSync(video: HTMLVideoElement) {
       setOverlayText("");
       return;
     }
-    const cue = findCueAt(video.currentTime);
+    const cue = findCueAt(video.currentTime - state.timeOffset);
     setOverlayText(cue ? cue.text : "");
     updateOverlayPosition();
   };
@@ -280,6 +378,7 @@ function attachVideoSync(video: HTMLVideoElement) {
     state.video = null;
     state.cleanupVideo = null;
   };
+  attachCalibration(video);
 }
 
 async function startTranslation() {
@@ -333,6 +432,7 @@ async function startTranslation() {
     if (!stillCurrent()) return;
 
     setCues(translated);
+    setSourceCues(cues);
     state.status = "ready";
     broadcastState();
 
@@ -340,6 +440,7 @@ async function startTranslation() {
       translatedAt: Date.now(),
       model: MODEL,
       cues: translated,
+      sourceCues: cues,
     });
 
     const video = findVideo();
@@ -361,9 +462,13 @@ async function regenerate() {
   state.abortCtrl?.abort();
   state.abortCtrl = null;
   state.cleanupVideo?.();
+  state.cleanupCalibration?.();
   setOverlayText("");
   state.cues = null;
   state.sortedStarts = null;
+  state.sourceCues = null;
+  state.sourceByNormText = null;
+  state.timeOffset = 0;
   state.progress = null;
   state.error = null;
   await deleteCache(url, state.targetLanguage);
@@ -381,15 +486,33 @@ async function fetchSubtitleText(url: string, signal?: AbortSignal): Promise<str
 function resetState() {
   state.abortCtrl?.abort();
   state.cleanupVideo?.();
+  state.cleanupCalibration?.();
   state.subtitleUrl = null;
   state.cues = null;
   state.sortedStarts = null;
+  state.sourceCues = null;
+  state.sourceByNormText = null;
+  state.timeOffset = 0;
   state.status = "idle";
   state.progress = null;
   state.error = null;
   state.abortCtrl = null;
   setOverlayText("");
   broadcastState();
+}
+
+async function hydrateSourceCues(url: string, cached: { sourceCues?: Cue[] }) {
+  if (cached.sourceCues && cached.sourceCues.length > 0) {
+    setSourceCues(cached.sourceCues);
+    return;
+  }
+  try {
+    const text = await fetchSubtitleText(url);
+    const parsed = await loadCues(url, text, fetchSubtitleText);
+    if (parsed.length > 0) setSourceCues(parsed);
+  } catch {
+    // calibration just won't run — not fatal
+  }
 }
 
 async function handleSubtitleDetected(url: string) {
@@ -399,8 +522,10 @@ async function handleSubtitleDetected(url: string) {
   const cached = await getCache(url, state.targetLanguage);
   if (cached) {
     setCues(cached.cues);
+    state.timeOffset = 0;
     state.status = "ready";
     broadcastState();
+    await hydrateSourceCues(url, cached);
     const video = findVideo();
     if (video) attachVideoSync(video);
     return;
@@ -416,9 +541,13 @@ async function onTargetLanguageChanged() {
   state.abortCtrl?.abort();
   state.abortCtrl = null;
   state.cleanupVideo?.();
+  state.cleanupCalibration?.();
   setOverlayText("");
   state.cues = null;
   state.sortedStarts = null;
+  state.sourceCues = null;
+  state.sourceByNormText = null;
+  state.timeOffset = 0;
   state.progress = null;
   state.error = null;
 
@@ -432,6 +561,7 @@ async function onTargetLanguageChanged() {
     setCues(cached.cues);
     state.status = "ready";
     broadcastState();
+    await hydrateSourceCues(state.subtitleUrl, cached);
     const video = findVideo();
     if (video) attachVideoSync(video);
     return;
