@@ -3,16 +3,21 @@ import type { Cue, TranslatedCue } from "../types";
 export const MODEL = "claude-opus-4-7";
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
-const CHUNK_SIZE = 50;
-const MAX_TOKENS = 8000;
+const MAX_TOKENS = 32000;
 const MAX_ATTEMPTS = 4;
-const CONCURRENCY = 4;
 
 function buildSystemPrompt(lang: string): string {
   return `You are a film subtitle translator. Translate the source subtitles into natural ${lang} subtitles that read like a professionally authored native-${lang} track — not a literal gloss of the source.
 
 About the input:
 - Each <line> carries start/end seconds from the source subtitle track. The player uses whatever start/end you put on each output cue to decide when to show it, so your output timestamps are the ground truth downstream.
+
+Speech-onset invariant (critical):
+- A source cue's start is WHEN THE SPEAKER STARTS TALKING. Viewers expect the subtitle to appear at that exact moment — not later.
+- Every output cue MUST start at exactly the same time as one of the source cues it derives from. Do not invent new start times.
+- When you split one source cue into multiple sub-cues: the FIRST sub-cue takes the source cue's start. Later sub-cues may start later, within the source cue's range.
+- When you merge several source cues into one: take the EARLIEST source start.
+- Never shift an output cue's start later than the onset of the speech it represents.
 
 Translation approach:
 - Render proper nouns using established ${lang} forms when they exist; otherwise follow ${lang}'s normal transliteration conventions.
@@ -30,6 +35,7 @@ Professional native-${lang} subtitle tracks regularly split one source cue into 
   - The speaker changes, or the topic shifts, within a single source cue.
 
 When splitting:
+  - The first sub-cue MUST start at the source cue's start (speech-onset invariant above).
   - Allocate time proportionally to where the split falls in the source (a mid-sentence comma near 50% → cue boundary near 50%). A line break is a strong split signal.
   - Each sub-cue is a single short breath unit.
   - For cross-cue continuation of a single sentence, use ${lang}'s native convention (whether that's an em-dash, ellipsis, specific punctuation, or nothing). Non-final sub-cues take no terminal punctuation; the final sub-cue takes its normal closing punctuation.
@@ -54,9 +60,6 @@ I/O format:
 
 type Progress = (done: number, total: number) => void;
 
-type AnthropicContentBlock = { type: string; text?: string };
-type AnthropicResponse = { content?: AnthropicContentBlock[] };
-
 export type TranslateOptions = {
   targetLanguage: string;
   signal?: AbortSignal;
@@ -68,12 +71,6 @@ class AbortError extends Error {
     super("aborted");
     this.name = "AbortError";
   }
-}
-
-function chunk<T>(arr: T[], n: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
-  return out;
 }
 
 function escapeXml(s: string): string {
@@ -135,19 +132,40 @@ function parseOutput(raw: string): ParsedLine[] {
   return out;
 }
 
-function sanitizeChunkOutput(
+function sanitizeOutput(
   parsed: ParsedLine[],
-  chunkStart: number,
-  chunkEnd: number,
+  sourceCues: Cue[],
+  rangeStart: number,
+  rangeEnd: number,
 ): TranslatedCue[] {
   const clamped: TranslatedCue[] = [];
   for (const p of parsed) {
-    const start = Math.max(chunkStart, Math.min(chunkEnd, p.start));
-    const end = Math.max(start + 0.001, Math.min(chunkEnd, p.end));
+    const start = Math.max(rangeStart, Math.min(rangeEnd, p.start));
+    const end = Math.max(start + 0.001, Math.min(rangeEnd, p.end));
     clamped.push({ start, end, text: p.text });
   }
   clamped.sort((a, b) => a.start - b.start);
-  // Collapse any residual overlap so downstream binary-search returns a single cue per time.
+
+  // Speech-onset snap: for each source cue, pull the FIRST output cue whose
+  // start falls in [src.start, src.end] back to src.start. Later output cues
+  // that fall in the same source range (sub-cues of a split) keep their
+  // starts, so multi-part splits survive.
+  const sorted = [...sourceCues].sort((a, b) => a.start - b.start);
+  let outIdx = 0;
+  for (const src of sorted) {
+    // Advance past outputs that end before this source starts (can't be matched).
+    while (outIdx < clamped.length && clamped[outIdx].start < src.start) outIdx++;
+    if (outIdx >= clamped.length) break;
+    const out = clamped[outIdx];
+    if (out.start <= src.end) {
+      out.start = src.start;
+      if (out.end <= out.start) out.end = out.start + 0.001;
+      outIdx++; // only snap the first match; further outputs in this source range stay put
+    }
+  }
+
+  clamped.sort((a, b) => a.start - b.start);
+  // Collapse residual overlap so downstream binary-search returns a single cue per time.
   for (let i = 1; i < clamped.length; i++) {
     if (clamped[i].start < clamped[i - 1].end) {
       clamped[i - 1].end = clamped[i].start;
@@ -171,29 +189,20 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function callClaudeOnce(
+async function callClaudeStreaming(
   apiKey: string,
   userContent: string,
   systemPrompt: string,
+  onLineDone: () => void,
   signal?: AbortSignal,
 ): Promise<string> {
-  const messages: Array<{ role: string; content: string }> = [
-    { role: "user", content: userContent },
-  ];
-
   const body = {
     model: MODEL,
     max_tokens: MAX_TOKENS,
-    system: [
-      {
-        type: "text",
-        text: systemPrompt,
-        cache_control: { type: "ephemeral" },
-      },
-    ],
-    messages,
+    stream: true,
+    system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
+    messages: [{ role: "user", content: userContent }],
   };
-
   const res = await fetch(API_URL, {
     method: "POST",
     headers: {
@@ -205,16 +214,58 @@ async function callClaudeOnce(
     body: JSON.stringify(body),
     signal,
   });
-  if (!res.ok) {
-    const err = await res.text();
+  if (!res.ok || !res.body) {
+    const err = await res.text().catch(() => "");
     const e = new Error(`Claude API ${res.status}: ${err}`);
     (e as Error & { status?: number }).status = res.status;
     throw e;
   }
-  const data = (await res.json()) as AnthropicResponse;
-  const text = data.content?.find((c) => c.type === "text")?.text;
-  if (!text) throw new Error("empty response from Claude");
-  return text;
+
+  const reader = res.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  let acc = "";
+  let scanFrom = 0;
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += value;
+      let sep = buffer.indexOf("\n\n");
+      while (sep !== -1) {
+        const raw = buffer.slice(0, sep);
+        buffer = buffer.slice(sep + 2);
+        let eventType = "";
+        let dataStr = "";
+        for (const l of raw.split("\n")) {
+          if (l.startsWith("event:")) eventType = l.slice(6).trim();
+          else if (l.startsWith("data:")) dataStr = l.slice(5).trim();
+        }
+        if (eventType === "content_block_delta" && dataStr) {
+          try {
+            const d = JSON.parse(dataStr) as { delta?: { text?: string } };
+            const text = d.delta?.text ?? "";
+            if (text) {
+              acc += text;
+              while (true) {
+                const idx = acc.indexOf("</line>", scanFrom);
+                if (idx === -1) break;
+                scanFrom = idx + 7;
+                onLineDone();
+              }
+            }
+          } catch {}
+        } else if (eventType === "error" && dataStr) {
+          throw new Error(`Claude stream error: ${dataStr}`);
+        }
+        sep = buffer.indexOf("\n\n");
+      }
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (!acc) throw new Error("empty response from Claude");
+  return acc;
 }
 
 function isRetryable(err: unknown): boolean {
@@ -228,13 +279,14 @@ async function callClaudeWithRetry(
   apiKey: string,
   userContent: string,
   systemPrompt: string,
+  onLineDone: () => void,
   signal?: AbortSignal,
 ): Promise<string> {
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw new AbortError();
     try {
-      return await callClaudeOnce(apiKey, userContent, systemPrompt, signal);
+      return await callClaudeStreaming(apiKey, userContent, systemPrompt, onLineDone, signal);
     } catch (e) {
       lastErr = e;
       if (!isRetryable(e) || attempt === MAX_ATTEMPTS - 1) throw e;
@@ -253,49 +305,30 @@ export async function translateCues(
   const { signal, onProgress, targetLanguage } = opts;
   const systemPrompt = buildSystemPrompt(targetLanguage);
   const indexed = cues.map((c, i) => ({ i, start: c.start, end: c.end, t: c.text }));
-  const chunks = chunk(indexed, CHUNK_SIZE);
-  const perChunk: TranslatedCue[][] = new Array(chunks.length);
+  const userContent = serializeInput(indexed);
+  const total = cues.length;
+  const rangeStart = indexed[0].start;
+  const rangeEnd = indexed[indexed.length - 1].end;
   let done = 0;
+  onProgress?.(0, total);
 
-  async function processChunk(index: number) {
-    const c = chunks[index];
-    const chunkStart = c[0].start;
-    const chunkEnd = c[c.length - 1].end;
-    const userContent = serializeInput(c);
-
-    try {
-      const raw = await callClaudeWithRetry(apiKey, userContent, systemPrompt, signal);
-      const parsed = parseOutput(raw);
-      const sanitized = sanitizeChunkOutput(parsed, chunkStart, chunkEnd);
-      if (sanitized.length === 0) throw new Error("chunk produced no valid cues");
-      perChunk[index] = sanitized;
-    } catch (e) {
-      if (e instanceof AbortError || (e as Error).name === "AbortError") throw e;
-      // Preserve source cues unchanged so the track stays watchable even if a
-      // single chunk fails after retries.
-      perChunk[index] = c.map((src) => ({ start: src.start, end: src.end, text: src.t }));
-    }
-    done += c.length;
-    onProgress?.(done, cues.length);
-  }
-
-  let next = 0;
-  const workers = Array.from(
-    { length: Math.min(CONCURRENCY, chunks.length) },
-    async function worker() {
-      while (true) {
-        if (signal?.aborted) throw new AbortError();
-        const i = next++;
-        if (i >= chunks.length) return;
-        await processChunk(i);
-      }
+  const raw = await callClaudeWithRetry(
+    apiKey,
+    userContent,
+    systemPrompt,
+    () => {
+      // Streaming onLineDone may exceed total briefly if the model emits
+      // extra lines; clamp so the UI doesn't jump past 100%.
+      done = Math.min(done + 1, total);
+      onProgress?.(done, total);
     },
+    signal,
   );
-  await Promise.all(workers);
-
-  const result: TranslatedCue[] = [];
-  for (const list of perChunk) if (list) result.push(...list);
-  return result.sort((a, b) => a.start - b.start);
+  const parsed = parseOutput(raw);
+  const sanitized = sanitizeOutput(parsed, cues, rangeStart, rangeEnd);
+  if (sanitized.length === 0) throw new Error("no valid cues in model response");
+  onProgress?.(total, total);
+  return sanitized;
 }
 
 export { AbortError };
