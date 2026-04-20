@@ -170,9 +170,22 @@ function findCaptionTextRect(): { top: number; height: number } | null {
   return lastCaptionRect;
 }
 
+function computeFontSizePx(): number | null {
+  const video = state.video ?? findVideo();
+  if (!video) return null;
+  const h = video.getBoundingClientRect().height;
+  if (h <= 0) return null;
+  // ~4.5% of video height matches Prime Video's default caption size across
+  // windowed + fullscreen. Clamp to keep it readable on tiny and enormous
+  // viewports.
+  return Math.max(14, Math.min(56, h * 0.045));
+}
+
 function updateOverlayPosition() {
   const root = ensureOverlayHost();
   const line = root.querySelector(".line") as HTMLDivElement;
+  const fontPx = computeFontSizePx();
+  line.style.fontSize = fontPx !== null ? `${fontPx}px` : "";
   const rect = findCaptionTextRect();
   if (rect) {
     if (state.hideOriginal) {
