@@ -10,7 +10,7 @@ import { dirname, resolve } from "node:path";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const OUT_DIR = resolve(__dirname, "out");
 
-const MODEL = "claude-opus-4-7";
+const MODEL = "claude-sonnet-4-6";
 const TARGET_LANGUAGE = "Japanese";
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";

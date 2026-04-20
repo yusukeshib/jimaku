@@ -1,6 +1,6 @@
 import type { Cue, TranslatedCue } from "../types";
 
-export const MODEL = "claude-opus-4-7";
+export const MODEL = "claude-sonnet-4-6";
 const API_URL = "https://api.anthropic.com/v1/messages";
 const API_VERSION = "2023-06-01";
 const MAX_TOKENS = 32000;
