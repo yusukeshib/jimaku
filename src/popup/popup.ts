@@ -83,7 +83,7 @@ function populateLanguageOptions(selected: string) {
 }
 
 function setModelLabel() {
-  modelLabel.textContent = `${MODEL} · → ${currentLanguage}`;
+  modelLabel.textContent = `${MODEL} · → ${currentLanguage} · ${__BUILD_VERSION__}`;
 }
 
 void getApiKey().then((key) => {
