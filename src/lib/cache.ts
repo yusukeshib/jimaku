@@ -70,3 +70,13 @@ export async function getHideOriginal(): Promise<boolean> {
 export async function setHideOriginal(v: boolean): Promise<void> {
   await chrome.storage.local.set({ hideOriginal: v });
 }
+
+export async function getEnabled(): Promise<boolean> {
+  const res = await chrome.storage.local.get("enabled");
+  // Default on: subtitle auto-translation is the extension's whole point.
+  return res.enabled !== false;
+}
+
+export async function setEnabled(v: boolean): Promise<void> {
+  await chrome.storage.local.set({ enabled: v });
+}

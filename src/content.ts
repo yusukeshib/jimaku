@@ -1,8 +1,8 @@
 import {
   DEFAULT_TARGET_LANGUAGE,
-  deleteCache,
   getApiKey,
   getCache,
+  getEnabled,
   getHideOriginal,
   getShowTranslated,
   getTargetLanguage,
@@ -60,6 +60,7 @@ type State = {
   showTranslated: boolean;
   hideOriginal: boolean;
   targetLanguage: string;
+  enabled: boolean;
 };
 
 const state: State = {
@@ -79,6 +80,7 @@ const state: State = {
   showTranslated: true,
   hideOriginal: false,
   targetLanguage: DEFAULT_TARGET_LANGUAGE,
+  enabled: true,
 };
 
 function snapshot(): StateSnapshot {
@@ -171,14 +173,21 @@ function findCaptionTextRect(): { top: number; height: number } | null {
 }
 
 function computeFontSizePx(): number | null {
+  // Prefer Prime Video's own caption size when the selector resolves — it
+  // already accounts for the user's caption-size preference, window size,
+  // fullscreen, etc.
+  for (const sel of CAPTION_TEXT_SELECTORS) {
+    const el = document.querySelector(sel) as HTMLElement | null;
+    if (!el) continue;
+    const px = parseFloat(getComputedStyle(el).fontSize);
+    if (Number.isFinite(px) && px > 0) return px;
+  }
+  // Fallback: derive from the video element's height.
   const video = state.video ?? findVideo();
   if (!video) return null;
   const h = video.getBoundingClientRect().height;
   if (h <= 0) return null;
-  // ~4.5% of video height matches Prime Video's default caption size across
-  // windowed + fullscreen. Clamp to keep it readable on tiny and enormous
-  // viewports.
-  return Math.max(14, Math.min(56, h * 0.045));
+  return Math.max(14, Math.min(36, h * 0.035));
 }
 
 function updateOverlayPosition() {
@@ -281,6 +290,33 @@ function setCues(cues: TranslatedCue[]) {
   const sorted = [...cues].sort((a, b) => a.start - b.start);
   state.cues = sorted;
   state.sortedStarts = sorted.map((c) => c.start);
+}
+
+// Insert a streamed cue into the sorted cue list. Streaming emits in
+// chronological order so inserts are almost always at the tail (O(1)); we
+// keep a safe fallback for any out-of-order emission.
+function appendStreamingCue(cue: TranslatedCue) {
+  if (!state.cues) {
+    state.cues = [];
+    state.sortedStarts = [];
+  }
+  const arr = state.cues;
+  const starts = state.sortedStarts as number[];
+  const last = arr[arr.length - 1];
+  if (!last || last.start <= cue.start) {
+    arr.push(cue);
+    starts.push(cue.start);
+  } else {
+    let lo = 0;
+    let hi = arr.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1;
+      if (starts[mid] <= cue.start) lo = mid + 1;
+      else hi = mid;
+    }
+    arr.splice(lo, 0, cue);
+    starts.splice(lo, 0, cue.start);
+  }
 }
 
 function normalizeCueText(s: string): string {
@@ -394,14 +430,9 @@ function attachVideoSync(video: HTMLVideoElement) {
   attachCalibration(video);
 }
 
-async function startTranslation() {
-  if (state.status === "error") {
-    state.error = null;
-    state.status = state.subtitleUrl ? "detected" : "idle";
-    broadcastState();
-    return;
-  }
-  if (state.status !== "detected" || !state.subtitleUrl) return;
+async function runTranslation(resumeFrom: TranslatedCue[] | null) {
+  if (!state.enabled || !state.subtitleUrl) return;
+  if (state.status === "translating") return; // already running
 
   const apiKey = await getApiKey();
   if (!apiKey) {
@@ -412,40 +443,75 @@ async function startTranslation() {
   }
 
   state.status = "translating";
-  state.progress = { done: 0, total: 0 };
+  state.error = null;
   state.abortCtrl = new AbortController();
   const { signal } = state.abortCtrl;
-  broadcastState();
 
   const targetUrl = state.subtitleUrl;
   const targetLang = state.targetLanguage;
-
-  const stillCurrent = () => state.subtitleUrl === targetUrl && state.targetLanguage === targetLang;
+  const stillCurrent = () =>
+    state.enabled && state.subtitleUrl === targetUrl && state.targetLanguage === targetLang;
 
   try {
-    const text = await fetchSubtitleText(targetUrl, signal);
-    const cues = await loadCues(targetUrl, text, fetchSubtitleText, signal);
-    if (cues.length === 0) {
-      throw new Error("Subtitle parse produced no cues");
+    let cues: Cue[];
+    if (state.sourceCues && state.sourceCues.length > 0) {
+      cues = state.sourceCues;
+    } else {
+      const text = await fetchSubtitleText(targetUrl, signal);
+      cues = await loadCues(targetUrl, text, fetchSubtitleText, signal);
+      if (cues.length === 0) throw new Error("Subtitle parse produced no cues");
+      setSourceCues(cues);
     }
 
-    state.progress = { done: 0, total: cues.length };
+    // Seed or trust existing cue state for incremental rendering.
+    if (resumeFrom && resumeFrom.length > 0) {
+      setCues(resumeFrom);
+    } else {
+      state.cues = [];
+      state.sortedStarts = [];
+    }
+    state.progress = { done: resumeFrom?.length ?? 0, total: cues.length };
     broadcastState();
+
+    const earlyVideo = findVideo();
+    if (earlyVideo) attachVideoSync(earlyVideo);
+
+    let lastCacheWrite = 0;
+    const CACHE_WRITE_INTERVAL_MS = 2000;
 
     const translated = await translateCues(cues, apiKey, {
       signal,
       targetLanguage: targetLang,
+      resumeFrom: resumeFrom ?? undefined,
       onProgress: (done, total) => {
         if (!stillCurrent()) return;
         state.progress = { done, total };
         broadcastState();
+      },
+      onCue: (cue) => {
+        if (!stillCurrent()) return;
+        appendStreamingCue(cue);
+        if (state.video) repaintOverlay();
+        const now = Date.now();
+        if (now - lastCacheWrite >= CACHE_WRITE_INTERVAL_MS) {
+          lastCacheWrite = now;
+          const partial = state.cues;
+          if (partial && partial.length > 0) {
+            void setCache(targetUrl, targetLang, {
+              translatedAt: now,
+              model: MODEL,
+              cues: partial.slice(),
+              sourceCues: cues,
+              complete: false,
+            });
+          }
+        }
       },
     });
 
     if (!stillCurrent()) return;
 
     setCues(translated);
-    setSourceCues(cues);
     state.status = "ready";
     broadcastState();
 
@@ -454,10 +520,8 @@ async function startTranslation() {
       model: MODEL,
       cues: translated,
       sourceCues: cues,
+      complete: true,
     });
-
-    const video = findVideo();
-    if (video) attachVideoSync(video);
   } catch (e) {
     if (e instanceof AbortError || (e as Error).name === "AbortError") return;
     if (!stillCurrent()) return;
@@ -467,27 +531,6 @@ async function startTranslation() {
   } finally {
     state.abortCtrl = null;
   }
-}
-
-async function regenerate() {
-  const url = state.subtitleUrl;
-  if (!url) return;
-  state.abortCtrl?.abort();
-  state.abortCtrl = null;
-  state.cleanupVideo?.();
-  state.cleanupCalibration?.();
-  setOverlayText("");
-  state.cues = null;
-  state.sortedStarts = null;
-  state.sourceCues = null;
-  state.sourceByNormText = null;
-  state.timeOffset = 0;
-  state.progress = null;
-  state.error = null;
-  await deleteCache(url, state.targetLanguage);
-  state.status = "detected";
-  broadcastState();
-  await startTranslation();
 }
 
 async function fetchSubtitleText(url: string, signal?: AbortSignal): Promise<string> {
@@ -536,15 +579,26 @@ async function handleSubtitleDetected(url: string) {
   if (cached) {
     setCues(cached.cues);
     state.timeOffset = 0;
-    state.status = "ready";
-    broadcastState();
     await hydrateSourceCues(url, cached);
     const video = findVideo();
     if (video) attachVideoSync(video);
+
+    if (cached.complete === false && state.enabled) {
+      // Partial cache — auto-resume from where we left off.
+      void runTranslation(cached.cues.slice());
+      return;
+    }
+    state.status = "ready";
+    broadcastState();
     return;
   }
 
-  if (state.status !== "translating") {
+  // Fresh subtitle track. If enabled, auto-start; otherwise idle.
+  if (state.enabled) {
+    state.status = "detected";
+    broadcastState();
+    void runTranslation(null);
+  } else {
     state.status = "detected";
     broadcastState();
   }
@@ -572,15 +626,49 @@ async function onTargetLanguageChanged() {
   const cached = await getCache(state.subtitleUrl, state.targetLanguage);
   if (cached) {
     setCues(cached.cues);
-    state.status = "ready";
-    broadcastState();
     await hydrateSourceCues(state.subtitleUrl, cached);
     const video = findVideo();
     if (video) attachVideoSync(video);
+    if (cached.complete === false && state.enabled) {
+      void runTranslation(cached.cues.slice());
+      return;
+    }
+    state.status = "ready";
+    broadcastState();
     return;
   }
   state.status = "detected";
   broadcastState();
+  if (state.enabled) void runTranslation(null);
+}
+
+function onEnabledChanged(next: boolean) {
+  const prev = state.enabled;
+  state.enabled = next;
+  if (!next) {
+    // Turn off: cancel any in-flight translation and blank the overlay.
+    state.abortCtrl?.abort();
+    state.abortCtrl = null;
+    setOverlayText("");
+    if (state.status === "translating") {
+      state.status = state.subtitleUrl ? "detected" : "idle";
+      broadcastState();
+    }
+    return;
+  }
+  if (!prev && state.subtitleUrl && state.status !== "translating") {
+    // Turned back on with a subtitle already detected — pick up where we left off.
+    void (async () => {
+      const cached = await getCache(state.subtitleUrl!, state.targetLanguage);
+      if (cached && cached.complete !== false) {
+        setCues(cached.cues);
+        state.status = "ready";
+        broadcastState();
+        return;
+      }
+      void runTranslation(cached?.cues.slice() ?? null);
+    })();
+  }
 }
 
 function watchForVideo() {
@@ -613,30 +701,28 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
     case "POPUP_GET_STATE":
       broadcastState();
       break;
-    case "POPUP_START":
-      void startTranslation();
-      break;
-    case "POPUP_REGENERATE":
-      void regenerate();
-      break;
   }
 });
 
-// Tell background we're ready so it can replay any URLs it already captured.
-const readyMsg: ContentReady = { type: "CONTENT_READY" };
-chrome.runtime.sendMessage(readyMsg).catch(() => {});
-
-void getShowTranslated().then((v) => {
-  state.showTranslated = v;
-  repaintOverlay();
-});
-void getHideOriginal().then((v) => {
-  state.hideOriginal = v;
+// Load all settings before announcing readiness, so the message handlers
+// don't act on default values (e.g. auto-starting when user actually has
+// enabled=false).
+void (async () => {
+  const [showTranslated, hideOriginal, targetLanguage, enabled] = await Promise.all([
+    getShowTranslated(),
+    getHideOriginal(),
+    getTargetLanguage(),
+    getEnabled(),
+  ]);
+  state.showTranslated = showTranslated;
+  state.hideOriginal = hideOriginal;
+  state.targetLanguage = targetLanguage;
+  state.enabled = enabled;
   applyHideOriginal();
-});
-void getTargetLanguage().then((l) => {
-  state.targetLanguage = l;
-});
+  repaintOverlay();
+  const readyMsg: ContentReady = { type: "CONTENT_READY" };
+  chrome.runtime.sendMessage(readyMsg).catch(() => {});
+})();
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.showTranslated) {
@@ -651,6 +737,9 @@ chrome.storage.onChanged.addListener((changes, area) => {
     const v = changes.targetLanguage.newValue;
     state.targetLanguage = typeof v === "string" && v.trim() ? v : DEFAULT_TARGET_LANGUAGE;
     void onTargetLanguageChanged();
+  }
+  if (changes.enabled) {
+    onEnabledChanged(changes.enabled.newValue !== false);
   }
 });
 

@@ -133,7 +133,7 @@ function applyBadge(tabId: number, s: StateSnapshot) {
     const p = s.progress;
     const pct = p && p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
     action.setBadgeBackgroundColor({ tabId, color: STATUS_COLORS.translating });
-    action.setBadgeText({ tabId, text: String(pct) });
+    action.setBadgeText({ tabId, text: `${pct}%` });
     return;
   }
   if (s.status === "error") {

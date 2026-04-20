@@ -1,10 +1,12 @@
 import {
   DEFAULT_TARGET_LANGUAGE,
   getApiKey,
+  getEnabled,
   getHideOriginal,
   getShowTranslated,
   getTargetLanguage,
   setApiKey,
+  setEnabled,
   setHideOriginal,
   setShowTranslated,
   setTargetLanguage,
@@ -13,8 +15,6 @@ import { MODEL } from "../lib/translate";
 import type {
   ExtensionMessage,
   PopupGetState,
-  PopupRegenerate,
-  PopupStart,
   StateSnapshot,
   Status,
 } from "../types";
@@ -55,10 +55,9 @@ const dot = document.getElementById("dot") as HTMLSpanElement;
 const statusText = document.getElementById("statusText") as HTMLSpanElement;
 const bar = document.getElementById("bar") as HTMLDivElement;
 const barFill = document.getElementById("barFill") as HTMLDivElement;
-const action = document.getElementById("action") as HTMLButtonElement;
-const regenerateBtn = document.getElementById("regenerate") as HTMLButtonElement;
 const err = document.getElementById("err") as HTMLParagraphElement;
 const modelLabel = document.getElementById("modelLabel") as HTMLSpanElement;
+const enabledCb = document.getElementById("enabled") as HTMLInputElement;
 const showTranslatedCb = document.getElementById("showTranslated") as HTMLInputElement;
 const hideOriginalCb = document.getElementById("hideOriginal") as HTMLInputElement;
 const languageSelect = document.getElementById("targetLanguage") as HTMLSelectElement;
@@ -104,11 +103,17 @@ saveApiKeyBtn.addEventListener("click", async () => {
   }, 2500);
 });
 
+void getEnabled().then((v) => {
+  enabledCb.checked = v;
+});
 void getShowTranslated().then((v) => {
   showTranslatedCb.checked = v;
 });
 void getHideOriginal().then((v) => {
   hideOriginalCb.checked = v;
+});
+enabledCb.addEventListener("change", () => {
+  void setEnabled(enabledCb.checked);
 });
 void getTargetLanguage().then((l) => {
   currentLanguage = l;
@@ -139,18 +144,12 @@ function renderUnreachable() {
   dot.className = "dot idle";
   statusText.textContent = "Open a Prime Video page to use Jimaku.";
   bar.classList.add("hidden");
-  action.classList.add("hidden");
-  regenerateBtn.classList.add("hidden");
   err.style.display = "none";
 }
 
 function render(s: StateSnapshot) {
   dot.className = `dot ${s.status}`;
   bar.classList.add("hidden");
-  action.classList.add("hidden");
-  regenerateBtn.classList.add("hidden");
-  regenerateBtn.disabled = false;
-  action.disabled = false;
   err.style.display = "none";
 
   const label: Record<Status, string> = {
@@ -162,10 +161,7 @@ function render(s: StateSnapshot) {
   };
   statusText.textContent = label[s.status];
 
-  if (s.status === "detected") {
-    action.classList.remove("hidden");
-    action.textContent = `Generate ${currentLanguage} subtitles`;
-  } else if (s.status === "translating") {
+  if (s.status === "translating") {
     const p = s.progress;
     const total = p?.total ?? 0;
     const done = p?.done ?? 0;
@@ -173,37 +169,11 @@ function render(s: StateSnapshot) {
     bar.classList.remove("hidden");
     barFill.style.width = `${pct}%`;
     statusText.textContent = `Translating… ${done}/${total || "?"} (${pct}%)`;
-  } else if (s.status === "ready") {
-    regenerateBtn.classList.remove("hidden");
-  } else if (s.status === "error") {
-    action.classList.remove("hidden");
-    action.textContent = "Retry";
-    if (s.error) {
-      err.style.display = "";
-      err.textContent = s.error;
-    }
+  } else if (s.status === "error" && s.error) {
+    err.style.display = "";
+    err.textContent = s.error;
   }
 }
-
-action.addEventListener("click", () => {
-  if (activeTabId === null) return;
-  action.disabled = true;
-  const msg: PopupStart = { type: "POPUP_START" };
-  chrome.tabs.sendMessage(activeTabId, msg).catch(() => {
-    contentReachable = false;
-    renderUnreachable();
-  });
-});
-
-regenerateBtn.addEventListener("click", () => {
-  if (activeTabId === null) return;
-  regenerateBtn.disabled = true;
-  const msg: PopupRegenerate = { type: "POPUP_REGENERATE" };
-  chrome.tabs.sendMessage(activeTabId, msg).catch(() => {
-    contentReachable = false;
-    renderUnreachable();
-  });
-});
 
 chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender) => {
   if (raw.type !== "STATE_UPDATE") return;

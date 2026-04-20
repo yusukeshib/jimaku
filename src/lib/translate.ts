@@ -59,11 +59,21 @@ I/O format:
 }
 
 type Progress = (done: number, total: number) => void;
+type CueEmit = (cue: TranslatedCue) => void;
 
 export type TranslateOptions = {
   targetLanguage: string;
   signal?: AbortSignal;
   onProgress?: Progress;
+  // Fires as each <line>...</line> finishes streaming, with start snapped to
+  // the matching source cue (same logic as the final sanitize). Lets the
+  // caller populate the overlay incrementally instead of waiting for the
+  // full response.
+  onCue?: CueEmit;
+  // When present, sent as an assistant-message prefill so Claude resumes
+  // generating from after the last cue instead of restarting. Preserves the
+  // single-call context (character voice, naming) across interruptions.
+  resumeFrom?: TranslatedCue[];
 };
 
 class AbortError extends Error {
@@ -189,19 +199,37 @@ async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+function parseLineXml(xml: string): ParsedLine | null {
+  const match = /<line\s+([^>]*?)>([\s\S]*?)<\/line>/.exec(xml);
+  if (!match) return null;
+  const attrs: Record<string, string> = {};
+  for (const a of match[1].matchAll(/(\w+)\s*=\s*"([^"]*)"/g)) attrs[a[1]] = a[2];
+  const start = parseTimeValue(attrs.start ?? "");
+  const end = parseTimeValue(attrs.end ?? "");
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return null;
+  const text = unescapeXml(match[2]).trim();
+  if (!text) return null;
+  return { start, end, text };
+}
+
 async function callClaudeStreaming(
   apiKey: string,
   userContent: string,
   systemPrompt: string,
-  onLineDone: () => void,
+  prefill: string | null,
+  onLineDone: (parsed: ParsedLine | null) => void,
   signal?: AbortSignal,
 ): Promise<string> {
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = [
+    { role: "user", content: userContent },
+  ];
+  if (prefill) messages.push({ role: "assistant", content: prefill });
   const body = {
     model: MODEL,
     max_tokens: MAX_TOKENS,
     stream: true,
     system: [{ type: "text", text: systemPrompt, cache_control: { type: "ephemeral" } }],
-    messages: [{ role: "user", content: userContent }],
+    messages,
   };
   const res = await fetch(API_URL, {
     method: "POST",
@@ -250,8 +278,11 @@ async function callClaudeStreaming(
               while (true) {
                 const idx = acc.indexOf("</line>", scanFrom);
                 if (idx === -1) break;
+                const open = acc.lastIndexOf("<line", idx);
+                const parsed =
+                  open >= 0 ? parseLineXml(acc.slice(open, idx + 7)) : null;
                 scanFrom = idx + 7;
-                onLineDone();
+                onLineDone(parsed);
               }
             }
           } catch {}
@@ -279,14 +310,15 @@ async function callClaudeWithRetry(
   apiKey: string,
   userContent: string,
   systemPrompt: string,
-  onLineDone: () => void,
+  prefill: string | null,
+  onLineDone: (parsed: ParsedLine | null) => void,
   signal?: AbortSignal,
 ): Promise<string> {
   let lastErr: unknown = null;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     if (signal?.aborted) throw new AbortError();
     try {
-      return await callClaudeStreaming(apiKey, userContent, systemPrompt, onLineDone, signal);
+      return await callClaudeStreaming(apiKey, userContent, systemPrompt, prefill, onLineDone, signal);
     } catch (e) {
       lastErr = e;
       if (!isRetryable(e) || attempt === MAX_ATTEMPTS - 1) throw e;
@@ -302,30 +334,90 @@ export async function translateCues(
   apiKey: string,
   opts: TranslateOptions,
 ): Promise<TranslatedCue[]> {
-  const { signal, onProgress, targetLanguage } = opts;
+  const { signal, onProgress, onCue, resumeFrom, targetLanguage } = opts;
   const systemPrompt = buildSystemPrompt(targetLanguage);
   const indexed = cues.map((c, i) => ({ i, start: c.start, end: c.end, t: c.text }));
   const userContent = serializeInput(indexed);
   const total = cues.length;
   const rangeStart = indexed[0].start;
   const rangeEnd = indexed[indexed.length - 1].end;
-  let done = 0;
-  onProgress?.(0, total);
+
+  // Serialize any prior cues as an assistant-message prefill so the model
+  // resumes generation after the last cue. Uses the same <line> shape it
+  // emits itself; ends with a newline so the next token naturally starts a
+  // new <line>.
+  const prefill =
+    resumeFrom && resumeFrom.length > 0
+      ? `${resumeFrom
+          .map(
+            (c) =>
+              `<line start="${c.start.toFixed(2)}" end="${c.end.toFixed(2)}">${escapeXml(c.text)}</line>`,
+          )
+          .join("\n")}\n`
+      : null;
+
+  let done = resumeFrom?.length ?? 0;
+  onProgress?.(done, total);
+
+  // Streaming-time sanitizer. Mirrors sanitizeOutput's per-line logic so the
+  // final replacement at completion is a no-op in the normal case.
+  const sortedSources = [...cues].sort((a, b) => a.start - b.start);
+  let srcIdx = 0;
+  // If resuming, advance the source pointer past cues already covered.
+  if (resumeFrom && resumeFrom.length > 0) {
+    const lastPriorStart = resumeFrom[resumeFrom.length - 1].start;
+    while (srcIdx < sortedSources.length && sortedSources[srcIdx].start <= lastPriorStart) {
+      srcIdx++;
+    }
+  }
+  const emitCue = (p: ParsedLine) => {
+    if (!onCue) return;
+    let start = Math.max(rangeStart, Math.min(rangeEnd, p.start));
+    let end = Math.max(start + 0.001, Math.min(rangeEnd, p.end));
+    // Speech-onset snap against the next unclaimed source cue.
+    while (srcIdx < sortedSources.length && sortedSources[srcIdx].end < start) {
+      srcIdx++;
+    }
+    if (srcIdx < sortedSources.length) {
+      const src = sortedSources[srcIdx];
+      if (start >= src.start && start <= src.end) {
+        start = src.start;
+        if (end <= start) end = start + 0.001;
+        srcIdx++;
+      }
+    }
+    onCue({ start, end, text: p.text });
+  };
 
   const raw = await callClaudeWithRetry(
     apiKey,
     userContent,
     systemPrompt,
-    () => {
+    prefill,
+    (parsed) => {
       // Streaming onLineDone may exceed total briefly if the model emits
       // extra lines; clamp so the UI doesn't jump past 100%.
       done = Math.min(done + 1, total);
       onProgress?.(done, total);
+      if (parsed) emitCue(parsed);
     },
     signal,
   );
-  const parsed = parseOutput(raw);
-  const sanitized = sanitizeOutput(parsed, cues, rangeStart, rangeEnd);
+  // Only `raw` (continuation) is parsed; combine with prior cues before
+  // sanitizing so the final list reflects the whole translation.
+  let parsed: ParsedLine[];
+  try {
+    parsed = parseOutput(raw);
+  } catch (e) {
+    if (!resumeFrom) throw e;
+    // Resume with no new output is legal — model decided the translation was
+    // already complete.
+    parsed = [];
+  }
+  const combined: ParsedLine[] = resumeFrom
+    ? [...resumeFrom.map((c) => ({ start: c.start, end: c.end, text: c.text })), ...parsed]
+    : parsed;
+  const sanitized = sanitizeOutput(combined, cues, rangeStart, rangeEnd);
   if (sanitized.length === 0) throw new Error("no valid cues in model response");
   onProgress?.(total, total);
   return sanitized;

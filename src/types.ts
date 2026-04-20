@@ -15,6 +15,9 @@ export type CacheEntry = {
   model: string;
   cues: TranslatedCue[];
   sourceCues?: Cue[];
+  // Undefined on legacy entries — treat as complete. False while translation
+  // is mid-stream; true once the final cache write lands.
+  complete?: boolean;
 };
 
 export type Status = "idle" | "detected" | "translating" | "ready" | "error";
@@ -43,14 +46,6 @@ export type PopupGetState = {
   type: "POPUP_GET_STATE";
 };
 
-export type PopupStart = {
-  type: "POPUP_START";
-};
-
-export type PopupRegenerate = {
-  type: "POPUP_REGENERATE";
-};
-
 export type StateUpdate = {
   type: "STATE_UPDATE";
   state: StateSnapshot;
@@ -61,6 +56,4 @@ export type ExtensionMessage =
   | SubtitleDetected
   | TabReset
   | PopupGetState
-  | PopupStart
-  | PopupRegenerate
   | StateUpdate;
