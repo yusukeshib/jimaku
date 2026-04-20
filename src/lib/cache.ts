@@ -50,3 +50,21 @@ export async function getOffsetSeconds(): Promise<number> {
 export async function setOffsetSeconds(offsetSeconds: number): Promise<void> {
   await chrome.storage.local.set({ offsetSeconds });
 }
+
+export async function getShowTranslated(): Promise<boolean> {
+  const res = await chrome.storage.local.get("showTranslated");
+  return res.showTranslated !== false;
+}
+
+export async function setShowTranslated(v: boolean): Promise<void> {
+  await chrome.storage.local.set({ showTranslated: v });
+}
+
+export async function getHideOriginal(): Promise<boolean> {
+  const res = await chrome.storage.local.get("hideOriginal");
+  return res.hideOriginal === true;
+}
+
+export async function setHideOriginal(v: boolean): Promise<void> {
+  await chrome.storage.local.set({ hideOriginal: v });
+}

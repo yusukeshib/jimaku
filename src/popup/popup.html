@@ -82,6 +82,21 @@
         margin: 8px 0 0;
         word-break: break-word;
       }
+      .toggles {
+        margin-top: 12px;
+        padding-top: 10px;
+        border-top: 1px solid #eaeaea;
+        display: grid;
+        gap: 8px;
+      }
+      .toggle {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 12px;
+      }
+      .toggle input { margin: 0; }
+      .toggle label { cursor: pointer; }
       .meta {
         font-size: 11px;
         color: #888;
@@ -108,6 +123,17 @@
       <button id="regenerate" class="secondary hidden" type="button">Regenerate</button>
 
       <p class="err" id="err" style="display:none;"></p>
+
+      <div class="toggles">
+        <div class="toggle">
+          <label for="showTranslated">Show Japanese overlay</label>
+          <input id="showTranslated" type="checkbox" />
+        </div>
+        <div class="toggle">
+          <label for="hideOriginal">Hide original subtitles</label>
+          <input id="hideOriginal" type="checkbox" />
+        </div>
+      </div>
 
       <p class="meta">
         <span id="modelLabel"></span>

@@ -1,3 +1,9 @@
+import {
+  getHideOriginal,
+  getShowTranslated,
+  setHideOriginal,
+  setShowTranslated,
+} from "../lib/cache";
 import { MODEL, TARGET_LANGUAGE } from "../lib/translate";
 import type {
   ExtensionMessage,
@@ -18,6 +24,8 @@ const regenerateBtn = document.getElementById("regenerate") as HTMLButtonElement
 const err = document.getElementById("err") as HTMLParagraphElement;
 const modelLabel = document.getElementById("modelLabel") as HTMLSpanElement;
 const openOptions = document.getElementById("openOptions") as HTMLAnchorElement;
+const showTranslatedCb = document.getElementById("showTranslated") as HTMLInputElement;
+const hideOriginalCb = document.getElementById("hideOriginal") as HTMLInputElement;
 
 modelLabel.textContent = `${MODEL} · → ${TARGET_LANGUAGE}`;
 sub.textContent = "Translates Prime Video subtitles with Claude.";
@@ -25,6 +33,19 @@ sub.textContent = "Translates Prime Video subtitles with Claude.";
 openOptions.addEventListener("click", (e) => {
   e.preventDefault();
   chrome.runtime.openOptionsPage();
+});
+
+void getShowTranslated().then((v) => {
+  showTranslatedCb.checked = v;
+});
+void getHideOriginal().then((v) => {
+  hideOriginalCb.checked = v;
+});
+showTranslatedCb.addEventListener("change", () => {
+  void setShowTranslated(showTranslatedCb.checked);
+});
+hideOriginalCb.addEventListener("change", () => {
+  void setHideOriginal(hideOriginalCb.checked);
 });
 
 let activeTabId: number | null = null;

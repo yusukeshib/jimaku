@@ -1,4 +1,12 @@
-import { deleteCache, getApiKey, getCache, getOffsetSeconds, setCache } from "./lib/cache";
+import {
+  deleteCache,
+  getApiKey,
+  getCache,
+  getHideOriginal,
+  getOffsetSeconds,
+  getShowTranslated,
+  setCache,
+} from "./lib/cache";
 import { loadCues } from "./lib/subtitle";
 import { AbortError, MODEL, translateCues } from "./lib/translate";
 import type {
@@ -11,6 +19,18 @@ import type {
 } from "./types";
 
 const OVERLAY_HOST_ID = "jimaku-host";
+const HIDE_ORIGINAL_STYLE_ID = "jimaku-hide-original";
+
+// Selectors targeting Prime Video's native caption overlay. Class names may
+// shift after player updates; kept broad on purpose.
+const HIDE_ORIGINAL_CSS = `
+  .atvwebplayersdk-captions-overlay,
+  .atvwebplayersdk-captions-text,
+  .webPlayerSDKContainer [class*="captions"],
+  .f1ts6ae1, .f1ts6ae2, .f1ts6ae3 {
+    visibility: hidden !important;
+  }
+`;
 
 type State = {
   subtitleUrl: string | null;
@@ -23,6 +43,8 @@ type State = {
   abortCtrl: AbortController | null;
   cleanupVideo: (() => void) | null;
   offsetSeconds: number;
+  showTranslated: boolean;
+  hideOriginal: boolean;
 };
 
 const state: State = {
@@ -36,6 +58,8 @@ const state: State = {
   abortCtrl: null,
   cleanupVideo: null,
   offsetSeconds: 0,
+  showTranslated: true,
+  hideOriginal: false,
 };
 
 function snapshot(): StateSnapshot {
@@ -116,6 +140,30 @@ function setOverlayText(text: string) {
   if (line.textContent !== text) line.textContent = text;
 }
 
+function repaintOverlay() {
+  if (!state.showTranslated) {
+    setOverlayText("");
+    return;
+  }
+  const v = state.video;
+  if (!v) return;
+  const cue = findCueAt(v.currentTime - state.offsetSeconds);
+  setOverlayText(cue ? cue.ja : "");
+}
+
+function applyHideOriginal() {
+  const existing = document.getElementById(HIDE_ORIGINAL_STYLE_ID);
+  if (state.hideOriginal) {
+    if (existing) return;
+    const style = document.createElement("style");
+    style.id = HIDE_ORIGINAL_STYLE_ID;
+    style.textContent = HIDE_ORIGINAL_CSS;
+    (document.head ?? document.documentElement).appendChild(style);
+  } else {
+    existing?.remove();
+  }
+}
+
 function findCueAt(seconds: number): TranslatedCue | null {
   const cues = state.cues;
   const starts = state.sortedStarts;
@@ -149,6 +197,10 @@ function attachVideoSync(video: HTMLVideoElement) {
   state.cleanupVideo?.();
   state.video = video;
   const onUpdate = () => {
+    if (!state.showTranslated) {
+      setOverlayText("");
+      return;
+    }
     const cue = findCueAt(video.currentTime - state.offsetSeconds);
     setOverlayText(cue ? cue.ja : "");
   };
@@ -332,9 +384,27 @@ chrome.runtime.sendMessage(readyMsg).catch(() => {});
 void getOffsetSeconds().then((s) => {
   state.offsetSeconds = s;
 });
+void getShowTranslated().then((v) => {
+  state.showTranslated = v;
+  repaintOverlay();
+});
+void getHideOriginal().then((v) => {
+  state.hideOriginal = v;
+  applyHideOriginal();
+});
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.offsetSeconds) state.offsetSeconds = Number(changes.offsetSeconds.newValue) || 0;
+  if (changes.offsetSeconds) {
+    state.offsetSeconds = Number(changes.offsetSeconds.newValue) || 0;
+  }
+  if (changes.showTranslated) {
+    state.showTranslated = changes.showTranslated.newValue !== false;
+    repaintOverlay();
+  }
+  if (changes.hideOriginal) {
+    state.hideOriginal = changes.hideOriginal.newValue === true;
+    applyHideOriginal();
+  }
 });
 
 watchForVideo();
