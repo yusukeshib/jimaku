@@ -4,3 +4,5 @@ dist
 *.log
 .vite
 .chrome-profile
+eval/out/
+.env.local
