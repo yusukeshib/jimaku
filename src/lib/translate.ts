@@ -1,4 +1,5 @@
 import type { Cue, TranslatedCue } from "../types";
+import { CueSanitizer } from "./cueSanitize";
 
 export const MODEL = "claude-sonnet-4-6";
 const API_URL = "https://api.anthropic.com/v1/messages";
@@ -124,67 +125,6 @@ function parseTimeValue(s: string): number {
   const m = s.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
   if (m) return Number(m[1]) * 3600 + Number(m[2]) * 60 + Number(m[3]);
   return Number.NaN;
-}
-
-function parseOutput(raw: string): ParsedLine[] {
-  // Match <line ...>text</line>, attribute order agnostic.
-  const re = /<line\s+([^>]*?)>([\s\S]*?)<\/line>/g;
-  const attrRe = /(\w+)\s*=\s*"([^"]*)"/g;
-  const out: ParsedLine[] = [];
-  for (const m of raw.matchAll(re)) {
-    const attrs: Record<string, string> = {};
-    for (const a of m[1].matchAll(attrRe)) attrs[a[1]] = a[2];
-    const start = parseTimeValue(attrs.start ?? "");
-    const end = parseTimeValue(attrs.end ?? "");
-    if (!Number.isFinite(start) || !Number.isFinite(end)) continue;
-    const text = unescapeXml(m[2]).trim();
-    if (!text) continue;
-    out.push({ start, end, text });
-  }
-  if (out.length === 0) throw new Error("No <line> tags with start/end found in model response");
-  return out;
-}
-
-function sanitizeOutput(
-  parsed: ParsedLine[],
-  sourceCues: Cue[],
-  rangeStart: number,
-  rangeEnd: number,
-): TranslatedCue[] {
-  const clamped: TranslatedCue[] = [];
-  for (const p of parsed) {
-    const start = Math.max(rangeStart, Math.min(rangeEnd, p.start));
-    const end = Math.max(start + 0.001, Math.min(rangeEnd, p.end));
-    clamped.push({ start, end, text: p.text });
-  }
-  clamped.sort((a, b) => a.start - b.start);
-
-  // Speech-onset snap: for each source cue, pull the FIRST output cue whose
-  // start falls in [src.start, src.end] back to src.start. Later output cues
-  // that fall in the same source range (sub-cues of a split) keep their
-  // starts, so multi-part splits survive.
-  const sorted = [...sourceCues].sort((a, b) => a.start - b.start);
-  let outIdx = 0;
-  for (const src of sorted) {
-    // Advance past outputs that end before this source starts (can't be matched).
-    while (outIdx < clamped.length && clamped[outIdx].start < src.start) outIdx++;
-    if (outIdx >= clamped.length) break;
-    const out = clamped[outIdx];
-    if (out.start <= src.end) {
-      out.start = src.start;
-      if (out.end <= out.start) out.end = out.start + 0.001;
-      outIdx++; // only snap the first match; further outputs in this source range stay put
-    }
-  }
-
-  clamped.sort((a, b) => a.start - b.start);
-  // Collapse residual overlap so downstream binary-search returns a single cue per time.
-  for (let i = 1; i < clamped.length; i++) {
-    if (clamped[i].start < clamped[i - 1].end) {
-      clamped[i - 1].end = clamped[i].start;
-    }
-  }
-  return clamped.filter((c) => c.end > c.start);
 }
 
 async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -379,37 +319,16 @@ export async function translateCues(
   let done = resumeFrom?.length ?? 0;
   onProgress?.(done, total);
 
-  // Streaming-time sanitizer. Mirrors sanitizeOutput's per-line logic so the
-  // final replacement at completion is a no-op in the normal case.
-  const sortedSources = [...cues].sort((a, b) => a.start - b.start);
-  let srcIdx = 0;
-  // If resuming, advance the source pointer past cues already covered.
+  // Single sanitizer that runs during streaming. Prior cues (on resume) are
+  // already sanitized, so we skip the source pointer past them instead of
+  // re-running the logic.
+  const sanitizer = new CueSanitizer(cues, rangeStart, rangeEnd);
   if (resumeFrom && resumeFrom.length > 0) {
-    const lastPriorStart = resumeFrom[resumeFrom.length - 1].start;
-    while (srcIdx < sortedSources.length && sortedSources[srcIdx].start <= lastPriorStart) {
-      srcIdx++;
-    }
+    sanitizer.skipPast(resumeFrom[resumeFrom.length - 1].start);
   }
-  const emitCue = (p: ParsedLine) => {
-    if (!onCue) return;
-    let start = Math.max(rangeStart, Math.min(rangeEnd, p.start));
-    let end = Math.max(start + 0.001, Math.min(rangeEnd, p.end));
-    // Speech-onset snap against the next unclaimed source cue.
-    while (srcIdx < sortedSources.length && sortedSources[srcIdx].end < start) {
-      srcIdx++;
-    }
-    if (srcIdx < sortedSources.length) {
-      const src = sortedSources[srcIdx];
-      if (start >= src.start && start <= src.end) {
-        start = src.start;
-        if (end <= start) end = start + 0.001;
-        srcIdx++;
-      }
-    }
-    onCue({ start, end, text: p.text });
-  };
+  const emittedNew: TranslatedCue[] = [];
 
-  const raw = await callClaudeWithRetry(
+  await callClaudeWithRetry(
     apiKey,
     userContent,
     systemPrompt,
@@ -418,28 +337,21 @@ export async function translateCues(
       // extra lines; clamp so the UI doesn't jump past 100%.
       done = Math.min(done + 1, total);
       onProgress?.(done, total);
-      if (parsed) emitCue(parsed);
+      if (!parsed) return;
+      const accepted = sanitizer.accept(parsed);
+      if (!accepted) return;
+      emittedNew.push(accepted);
+      onCue?.(accepted);
     },
     signal,
   );
-  // Only `raw` (continuation) is parsed; combine with prior cues before
-  // sanitizing so the final list reflects the whole translation.
-  let parsed: ParsedLine[];
-  try {
-    parsed = parseOutput(raw);
-  } catch (e) {
-    if (!resumeFrom) throw e;
-    // Resume with no new output is legal — model decided the translation was
-    // already complete.
-    parsed = [];
-  }
-  const combined: ParsedLine[] = resumeFrom
-    ? [...resumeFrom.map((c) => ({ start: c.start, end: c.end, text: c.text })), ...parsed]
-    : parsed;
-  const sanitized = sanitizeOutput(combined, cues, rangeStart, rangeEnd);
-  if (sanitized.length === 0) throw new Error("no valid cues in model response");
+
+  // Drop the tail if overlap-collapse shrank it to zero.
+  const filteredNew = emittedNew.filter((c) => c.end > c.start);
+  const combined = resumeFrom ? [...resumeFrom, ...filteredNew] : filteredNew;
+  if (combined.length === 0) throw new Error("no valid cues in model response");
   onProgress?.(total, total);
-  return sanitized;
+  return combined;
 }
 
 export { AbortError };
@@ -447,9 +359,7 @@ export { AbortError };
 // Exported for unit tests; not part of the public surface.
 export const __test__ = {
   parseTimeValue,
-  parseOutput,
   parseLineXml,
-  sanitizeOutput,
   escapeXml,
   unescapeXml,
   serializeInput,
