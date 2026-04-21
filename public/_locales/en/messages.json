@@ -1,7 +1,7 @@
 {
-  "tagline": { "message": "Translates Prime Video subtitles with AI." },
+  "tagline": { "message": "Translates Prime Video and Netflix subtitles with AI." },
   "status_checking": { "message": "Checking…" },
-  "status_open_prime_video": { "message": "Open a Prime Video page to use Jimaku." },
+  "status_open_streaming_page": { "message": "Open a Prime Video or Netflix page to use Jimaku." },
   "status_auto_translate_off": { "message": "Auto-translate is off." },
   "status_something_went_wrong": { "message": "Something went wrong." },
   "status_translating": {

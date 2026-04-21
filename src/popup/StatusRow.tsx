@@ -80,7 +80,7 @@ export function StatusRow({ snapshot, reachable, language }: Props) {
     return (
       <div className="status-row">
         <span className="dot idle" />
-        <span>{t("status_open_prime_video")}</span>
+        <span>{t("status_open_streaming_page")}</span>
       </div>
     );
   }

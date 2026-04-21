@@ -3,7 +3,7 @@
 export type MessageKey =
   | "tagline"
   | "status_checking"
-  | "status_open_prime_video"
+  | "status_open_streaming_page"
   | "status_auto_translate_off"
   | "status_something_went_wrong"
   | "status_translating"

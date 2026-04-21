@@ -1,7 +1,9 @@
 {
-  "tagline": { "message": "Prime Videoの字幕をAIで翻訳します。" },
+  "tagline": { "message": "Prime VideoとNetflixの字幕をAIで翻訳します。" },
   "status_checking": { "message": "確認中…" },
-  "status_open_prime_video": { "message": "Prime Videoのページを開いてJimakuをご利用ください。" },
+  "status_open_streaming_page": {
+    "message": "Prime VideoまたはNetflixのページを開いてJimakuをご利用ください。"
+  },
   "status_auto_translate_off": { "message": "自動翻訳はオフです。" },
   "status_something_went_wrong": { "message": "エラーが発生しました。" },
   "status_translating": {

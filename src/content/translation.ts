@@ -1,6 +1,7 @@
 import { getCache, getProviderConfig, setCache } from "../lib/cache";
 import { loadCues } from "../lib/subtitle";
 import { AbortError, translateCues } from "../lib/translate";
+import { currentPlatform } from "../platforms";
 import type { Cue, PlaybackState } from "../types";
 import { isMainVideoPlaying } from "./playback";
 import { state } from "./state";
@@ -147,6 +148,43 @@ export async function applySubtitleUrl(url: string) {
   await loadOrTranslate();
 }
 
+/**
+ * For platforms whose subtitle source is `provided` (e.g. Netflix): fetch
+ * cues from the platform's source, seed them into state, then kick off the
+ * normal load-or-translate flow using the cache key as a pseudo-URL.
+ *
+ * Idempotent — no-ops if subtitles are already resolved or a resolve is
+ * already in flight.
+ */
+let providedResolveCtrl: AbortController | null = null;
+export async function ensureProvidedSubtitles() {
+  if (state.subtitleUrl) return;
+  if (providedResolveCtrl) return;
+  const platform = currentPlatform();
+  if (platform?.subtitleSource.kind !== "provided") return;
+
+  const ctrl = new AbortController();
+  providedResolveCtrl = ctrl;
+  try {
+    const result = await platform.subtitleSource.provide(ctrl.signal);
+    if (ctrl.signal.aborted) return;
+    if (!result) {
+      state.onTranslationFailed("No subtitles found for this episode");
+      return;
+    }
+    state.sourceIndex.set(result.cues);
+    state.onSubtitleDetected(result.cacheKey);
+    await loadOrTranslate();
+  } catch (e) {
+    if (ctrl.signal.aborted) return;
+    state.onTranslationFailed(
+      `Could not load subtitles: ${e instanceof Error ? e.message : String(e)}`,
+    );
+  } finally {
+    if (providedResolveCtrl === ctrl) providedResolveCtrl = null;
+  }
+}
+
 /** User changed the target language — drop state for the old language and
  *  re-evaluate under the new one. */
 export async function onTargetLanguageChanged() {
@@ -164,11 +202,24 @@ export function onEnabledChanged(next: boolean) {
   if (!next) {
     state.abortCtrl?.abort();
     state.abortCtrl = null;
+    providedResolveCtrl?.abort();
+    providedResolveCtrl = null;
     return;
   }
-  if (!prev && state.subtitleUrl && state.phase !== "translating") {
-    void loadOrTranslate();
+  if (!prev) {
+    if (state.subtitleUrl && state.phase !== "translating") {
+      void loadOrTranslate();
+    } else if (!state.subtitleUrl && isMainVideoPlaying()) {
+      // Provided platforms: source hasn't been resolved yet.
+      void ensureProvidedSubtitles();
+    }
   }
+}
+
+/** Abort any in-flight provided-subtitle resolution. Fired on TAB_RESET. */
+export function cancelProvidedSubtitles() {
+  providedResolveCtrl?.abort();
+  providedResolveCtrl = null;
 }
 
 /** Playback transitions — start/resume on play, abort only when the user
@@ -176,11 +227,23 @@ export function onEnabledChanged(next: boolean) {
  *  lets the in-flight translation keep running so resume is seamless. */
 export function onPlaybackTransition(next: PlaybackState) {
   if (next === "playing") {
-    if (state.subtitleUrl && state.phase !== "translating") void loadOrTranslate();
+    if (!state.subtitleUrl) {
+      // Provided platforms (Netflix) don't surface a subtitle URL via
+      // network intercept — pull cues from the configured source instead.
+      if (currentPlatform()?.subtitleSource.kind === "provided") {
+        void ensureProvidedSubtitles();
+      }
+      return;
+    }
+    if (state.phase !== "translating") void loadOrTranslate();
     return;
   }
-  if (next === "absent" && state.phase === "translating") {
-    state.abortCtrl?.abort();
-    state.abortCtrl = null;
+  if (next === "absent") {
+    providedResolveCtrl?.abort();
+    providedResolveCtrl = null;
+    if (state.phase === "translating") {
+      state.abortCtrl?.abort();
+      state.abortCtrl = null;
+    }
   }
 }

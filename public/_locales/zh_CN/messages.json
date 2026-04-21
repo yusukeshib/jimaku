@@ -1,7 +1,7 @@
 {
-  "tagline": { "message": "使用 AI 翻译 Prime Video 的字幕。" },
+  "tagline": { "message": "使用 AI 翻译 Prime Video 和 Netflix 的字幕。" },
   "status_checking": { "message": "检查中…" },
-  "status_open_prime_video": { "message": "请打开 Prime Video 页面以使用 Jimaku。" },
+  "status_open_streaming_page": { "message": "请打开 Prime Video 或 Netflix 页面以使用 Jimaku。" },
   "status_auto_translate_off": { "message": "自动翻译已关闭。" },
   "status_something_went_wrong": { "message": "出现错误。" },
   "status_translating": {

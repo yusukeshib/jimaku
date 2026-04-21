@@ -1,8 +1,11 @@
 import { setProviderKey } from "./lib/cache";
 import { connectOpenRouter } from "./lib/openrouterAuth";
+import { findFirstUsableSubtitle, searchSubtitleIds } from "./lib/opensubtitles";
+import { allWebNavigationFilters, allWebRequestUrls, platformForUrl } from "./platforms";
 import type {
   ExtensionMessage,
   OpenRouterConnectResult,
+  OpenSubtitlesFetchResult,
   StateSnapshot,
   SubtitleDetected,
   TabReset,
@@ -16,13 +19,15 @@ const urlsByTab = new Map<number, Set<string>>();
 const lastTitleKeyByTab = new Map<number, string>();
 
 function titleKeyFromUrl(url: string): string {
+  let parsed: URL;
   try {
-    const u = new URL(url);
-    const m = u.pathname.match(/\/(?:gp\/video\/detail|detail|dp)\/([A-Z0-9]+)/i);
-    return m ? `${u.host}:${m[1]}` : `${u.host}${u.pathname}`;
+    parsed = new URL(url);
   } catch {
     return url;
   }
+  const platform = platformForUrl(parsed);
+  if (platform) return platform.titleKeyFromUrl(parsed);
+  return `${parsed.host}${parsed.pathname}`;
 }
 
 function looksLikeSubtitle(url: string): boolean {
@@ -58,16 +63,7 @@ chrome.webRequest.onBeforeRequest.addListener(
     if (!looksLikeSubtitle(details.url)) return;
     recordAndNotify(details.tabId, details.url);
   },
-  {
-    urls: [
-      "*://*.amazon.com/*",
-      "*://*.amazon.co.jp/*",
-      "*://*.primevideo.com/*",
-      "*://*.media-amazon.com/*",
-      "*://*.pv-cdn.net/*",
-      "*://*.aiv-cdn.net/*",
-    ],
-  },
+  { urls: allWebRequestUrls() },
 );
 
 chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, sendResponse) => {
@@ -88,6 +84,27 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, sendRespons
     applyBadge(tabId, raw.state);
     void applyIcon(tabId, raw.state);
     return;
+  }
+  if (raw.type === "OPENSUBTITLES_FETCH") {
+    // MV3 content scripts inherit the page's CORS origin, so cross-origin
+    // fetches to opensubtitles.org fail from Netflix even with
+    // host_permissions. Service workers are exempt — do the fetch here and
+    // hand the SRT text back to the content script.
+    void (async () => {
+      try {
+        const ids = await searchSubtitleIds({ query: raw.query, language: raw.language });
+        const srt = ids.length === 0 ? null : await findFirstUsableSubtitle(ids, raw.minCues);
+        const res: OpenSubtitlesFetchResult = { ok: true, srt };
+        sendResponse(res);
+      } catch (e) {
+        const res: OpenSubtitlesFetchResult = {
+          ok: false,
+          error: e instanceof Error ? e.message : String(e),
+        };
+        sendResponse(res);
+      }
+    })();
+    return true;
   }
   if (raw.type === "OPENROUTER_CONNECT") {
     // Handled in the SW so the flow survives the toolbar popup closing when
@@ -126,7 +143,7 @@ type BadgeSpec = { text: string; color: string } | null;
 function deriveIcon(s: StateSnapshot): IconSpec {
   if (!s.enabled) return { color: DISABLED_COLOR, variant: "cc" };
   if (s.translation.phase === "error") return { color: ERROR_COLOR, variant: "cc" };
-  // On a Prime Video page (content script is live) with no subtitle URL yet
+  // On a playback page (content script is live) with no subtitle URL yet
   // — show a loading "..." to signal "waiting to detect".
   if (s.translation.phase === "idle" && !s.hasSubtitle) {
     return { color: ACTIVE_COLOR, variant: "dots" };
@@ -227,7 +244,7 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   resetTab(tabId);
 });
 
-// SPA navigation inside Prime Video — only reset on actual title change.
+// SPA navigation inside a streaming platform — only reset on actual title change.
 chrome.webNavigation.onHistoryStateUpdated.addListener(
   (details) => {
     if (details.frameId !== 0) return;
@@ -236,11 +253,5 @@ chrome.webNavigation.onHistoryStateUpdated.addListener(
     lastTitleKeyByTab.set(details.tabId, key);
     resetTab(details.tabId);
   },
-  {
-    url: [
-      { hostContains: "amazon.com" },
-      { hostContains: "amazon.co.jp" },
-      { hostContains: "primevideo.com" },
-    ],
-  },
+  { url: allWebNavigationFilters() },
 );

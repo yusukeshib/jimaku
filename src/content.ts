@@ -5,6 +5,7 @@ import { state } from "./content/state";
 import { createTrackResolver } from "./content/trackResolver";
 import {
   applySubtitleUrl,
+  cancelProvidedSubtitles,
   onEnabledChanged,
   onPlaybackTransition,
   onTargetLanguageChanged,
@@ -16,23 +17,10 @@ import {
   getShowTranslated,
   getTargetLanguage,
 } from "./lib/cache";
+import { currentPlatform } from "./platforms";
 import type { ContentReady, ExtensionMessage, StateSnapshot, StateUpdate } from "./types";
 
 // ---------- Snapshot + broadcast ----------
-
-function findTitle(): string | null {
-  const sels = [".atvwebplayersdk-title-text", '[class*="TitleContainer"] [class*="title"]', "h1"];
-  for (const sel of sels) {
-    const el = document.querySelector(sel) as HTMLElement | null;
-    const t = el?.textContent?.trim();
-    if (t) return t;
-  }
-  const t = document.title
-    ?.replace(/\s*\|\s*Prime Video\s*$/i, "")
-    .replace(/^Watch\s+/i, "")
-    .trim();
-  return t || null;
-}
 
 function snapshot(): StateSnapshot {
   return {
@@ -44,7 +32,7 @@ function snapshot(): StateSnapshot {
     playback: state.playback,
     hasSubtitle: state.subtitleUrl !== null,
     enabled: state.enabled,
-    title: findTitle(),
+    title: currentPlatform()?.findTitle() ?? null,
   };
 }
 
@@ -94,6 +82,7 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
       break;
     case "TAB_RESET":
       trackResolver.clear();
+      cancelProvidedSubtitles();
       state.onTabReset();
       break;
     case "POPUP_GET_STATE":

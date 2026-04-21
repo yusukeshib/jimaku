@@ -1,29 +1,25 @@
+import { currentPlatform } from "../platforms";
+
 const OVERLAY_HOST_ID = "jimaku-host";
 const HIDE_ORIGINAL_STYLE_ID = "jimaku-hide-original";
 
-// Selectors for positioning (prefer the text span — the overlay container
-// covers the whole player, which is useless as a position anchor).
-export const CAPTION_TEXT_SELECTORS = [
-  ".atvwebplayersdk-captions-text",
-  '.webPlayerSDKContainer [class*="caption"][class*="text"]',
-];
+function captionTextSelectors(): readonly string[] {
+  return currentPlatform()?.captionTextSelectors ?? [];
+}
 
-// Broader selectors used only to hide Prime Video's native captions.
-const CAPTION_HIDE_SELECTORS = [
-  ".atvwebplayersdk-captions-overlay",
-  ".atvwebplayersdk-captions-text",
-  '.webPlayerSDKContainer [class*="captions"]',
-];
-
-const HIDE_ORIGINAL_CSS = `
-  ${CAPTION_HIDE_SELECTORS.join(",\n  ")} {
+function hideOriginalCss(): string {
+  const selectors = currentPlatform()?.captionHideSelectors ?? [];
+  if (selectors.length === 0) return "";
+  return `
+  ${selectors.join(",\n  ")} {
     visibility: hidden !important;
   }
 `;
+}
 
-/** Find the native caption text span in Prime Video's player DOM. */
+/** Find the native caption text span in the current platform's player DOM. */
 export function nativeCaptionEl(): HTMLElement | null {
-  for (const sel of CAPTION_TEXT_SELECTORS) {
+  for (const sel of captionTextSelectors()) {
     const el = document.querySelector(sel) as HTMLElement | null;
     if (el) return el;
   }
@@ -97,14 +93,9 @@ function findCaptionTextRect(): { top: number; height: number } | null {
 }
 
 function computeFontSizePx(video: HTMLVideoElement | null): number | null {
-  // Prefer Prime Video's own caption size when available — it already
-  // accounts for the user's caption-size preference, window size, fullscreen.
-  const el = nativeCaptionEl();
-  if (el) {
-    const px = parseFloat(getComputedStyle(el).fontSize);
-    if (Number.isFinite(px) && px > 0) return px;
-  }
-  // Fallback: derive from the video element's height.
+  // Derive from the video element's height. We used to mirror the native
+  // caption's inline font-size, but players like Netflix vary it per cue
+  // (and tear it down between cues), which made the overlay flicker.
   if (!video) return null;
   const h = video.getBoundingClientRect().height;
   if (h <= 0) return null;
@@ -131,10 +122,10 @@ export function updateOverlayPosition(ctx: PositionContext): void {
       line.style.top = `${centerY}px`;
       line.style.transform = "translate(-50%, -50%)";
     } else {
-      // Prime Video puts captions near the bottom most of the time, but
-      // occasionally at the top (narration, on-screen labels). Stack above
-      // bottom-placed captions and below top-placed ones so the translated
-      // line always stays on-screen.
+      // Players usually put captions near the bottom, but occasionally at
+      // the top (narration, on-screen labels). Stack above bottom-placed
+      // captions and below top-placed ones so the translated line always
+      // stays on-screen.
       const videoMidY = ctx.video
         ? ctx.video.getBoundingClientRect().top + ctx.video.getBoundingClientRect().height / 2
         : window.innerHeight / 2;
@@ -161,14 +152,14 @@ export function updateOverlayPosition(ctx: PositionContext): void {
   line.style.transform = "";
 }
 
-/** Toggle the CSS injection that hides Prime Video's native captions. */
+/** Toggle the CSS injection that hides the platform's native captions. */
 export function applyHideOriginal(on: boolean): void {
   const existing = document.getElementById(HIDE_ORIGINAL_STYLE_ID);
   if (on) {
     if (!existing) {
       const style = document.createElement("style");
       style.id = HIDE_ORIGINAL_STYLE_ID;
-      style.textContent = HIDE_ORIGINAL_CSS;
+      style.textContent = hideOriginalCss();
       (document.head ?? document.documentElement).appendChild(style);
     }
   } else {

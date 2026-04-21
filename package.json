@@ -1,7 +1,7 @@
 {
   "name": "jimaku",
   "version": "0.1.0",
-  "description": "Chrome extension that translates Amazon Prime Video's English subtitles into Japanese using Claude and overlays them on the player",
+  "description": "Chrome extension that translates Prime Video and Netflix subtitles with AI and overlays them on the player",
   "private": true,
   "type": "module",
   "scripts": {
