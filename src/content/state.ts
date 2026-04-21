@@ -33,9 +33,11 @@ class ContentState {
   playback: PlaybackState = "absent";
 
   // --- Runtime resources (not broadcast) ---
+  // Lifecycle invariant: `video` is non-null exactly when playback is
+  // "playing" or "paused". Mutated only via onVideoAttached/onVideoDetached
+  // from the single sync function in content.ts.
   video: HTMLVideoElement | null = null;
   abortCtrl: AbortController | null = null;
-  cleanupVideo: (() => void) | null = null;
   cleanupCalibration: (() => void) | null = null;
 
   private listeners = new Set<Listener>();
@@ -141,14 +143,29 @@ class ContentState {
     this.notify();
   }
 
+  onVideoAttached(video: HTMLVideoElement, cleanupCalibration: () => void) {
+    if (this.video === video) return;
+    this.cleanupCalibration?.();
+    this.video = video;
+    this.cleanupCalibration = cleanupCalibration;
+    this.notify();
+  }
+
+  onVideoDetached() {
+    if (!this.video) return;
+    this.cleanupCalibration?.();
+    this.cleanupCalibration = null;
+    this.video = null;
+    this.notify();
+  }
+
   // --- Lifecycle / reset ---
 
-  /** TAB_RESET from background: drop subtitle + cues, revert phase to idle. */
+  /** TAB_RESET from background: drop subtitle + cues, revert phase to idle.
+   *  Leaves video binding alone — that's owned by the playback sync loop. */
   onTabReset() {
     this.abortCtrl?.abort();
     this.abortCtrl = null;
-    this.cleanupVideo?.();
-    this.cleanupCalibration?.();
     this.cues.clear();
     this.sourceIndex.clear();
     this.subtitleUrl = null;
@@ -163,8 +180,6 @@ class ContentState {
   onSubtitleUrlSwitching() {
     this.abortCtrl?.abort();
     this.abortCtrl = null;
-    this.cleanupVideo?.();
-    this.cleanupCalibration?.();
     this.cues.clear();
     this.sourceIndex.clear();
     this.timeOffset = 0;

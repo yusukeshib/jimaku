@@ -1,14 +1,13 @@
+import { attachCalibration } from "./content/calibration";
 import { applyHideOriginal, setOverlayText, updateOverlayPosition } from "./content/overlay";
-import { watchForPlayback, watchForVideo } from "./content/playback";
+import { findVideo, watchForPlayback, watchForVideo } from "./content/playback";
 import { state } from "./content/state";
 import { createTrackResolver } from "./content/trackResolver";
 import {
   applySubtitleUrl,
-  attachVideoSync,
   onEnabledChanged,
-  onPlaybackChange,
+  onPlaybackTransition,
   onTargetLanguageChanged,
-  onVideoFound,
 } from "./content/translation";
 import {
   DEFAULT_TARGET_LANGUAGE,
@@ -57,6 +56,8 @@ function broadcastState() {
 // ---------- Overlay subscriber (pure derivation from state) ----------
 
 function paintOverlay() {
+  // Invariant: state.video is non-null iff playback is playing/paused.
+  // So checking state.video alone is sufficient.
   const v = state.video;
   if (!state.showTranslated || !v) {
     setOverlayText("");
@@ -64,8 +65,17 @@ function paintOverlay() {
     const cue = state.cues.findAt(v.currentTime - state.timeOffset);
     setOverlayText(cue ? cue.text : "");
   }
-  applyHideOriginal(state.hideOriginal);
-  updateOverlayPosition({ video: state.video, hideOriginal: state.hideOriginal });
+  applyHideOriginal(state.hideOriginal && v !== null);
+  updateOverlayPosition({ video: v, hideOriginal: state.hideOriginal });
+}
+
+// --- Video binding sync: single owner of state.video ---
+
+function syncVideoBinding() {
+  const want = findVideo();
+  if (want === state.video) return;
+  if (state.video) state.onVideoDetached();
+  if (want) state.onVideoAttached(want, attachCalibration(want));
 }
 
 // ---------- Track resolver ----------
@@ -132,11 +142,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
 
 // ---------- DOM lifecycle ----------
 
-watchForVideo((video) => {
-  onVideoFound(video);
-  if (video !== state.video) attachVideoSync(video);
+// Re-evaluate video binding whenever the DOM changes (video remount) or
+// playback state transitions (player opened/closed). Both feed into the
+// single sync function that owns state.video.
+watchForVideo(syncVideoBinding);
+watchForPlayback((next) => {
+  state.onPlaybackChanged(next);
+  syncVideoBinding();
+  onPlaybackTransition(next);
 });
-watchForPlayback(onPlaybackChange);
 
 // Video clock drives re-paint (time-driven re-derive, not a state change).
 // We listen inside a MutationObserver-style pattern: re-attach whenever the

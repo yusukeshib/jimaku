@@ -14,13 +14,12 @@ function isMainVideoQualified(v: HTMLVideoElement): boolean {
 }
 
 /**
- * Prime Video keeps a paused preroll-ad <video> alongside the playing main
- * <video>. Prefer whichever is actually playing, falling back to the longest.
+ * Return the main episode <video>, or null. Excludes the detail-page trailer
+ * (short duration) and the pre-mounted-but-invisible episode element on the
+ * detail page (no layout box) — only a qualified, visible main <video> wins.
  */
 export function findVideo(): HTMLVideoElement | null {
-  const videos = Array.from(document.querySelectorAll("video")).filter(
-    (v) => v.videoWidth > 0 && v.videoHeight > 0,
-  );
+  const videos = Array.from(document.querySelectorAll("video")).filter(isMainVideoQualified);
   if (videos.length === 0) return null;
   const playing = videos.filter((v) => !v.paused);
   const pool = playing.length > 0 ? playing : videos;

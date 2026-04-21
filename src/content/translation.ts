@@ -2,8 +2,7 @@ import { getApiKey, getCache, setCache } from "../lib/cache";
 import { loadCues } from "../lib/subtitle";
 import { AbortError, MODEL, translateCues } from "../lib/translate";
 import type { Cue, PlaybackState } from "../types";
-import { attachCalibration } from "./calibration";
-import { findVideo, isMainVideoPlaying } from "./playback";
+import { isMainVideoPlaying } from "./playback";
 import { state } from "./state";
 
 // --- Internal helpers ---
@@ -27,28 +26,6 @@ async function hydrateSourceCues(url: string, cached: { sourceCues?: Cue[] }) {
   } catch {
     // Calibration just won't run — not fatal.
   }
-}
-
-/**
- * Bind a video element to calibration + lifecycle cleanup. Cue painting is
- * handled by a state subscriber in the orchestrator (content.ts), not here.
- */
-export function attachVideoSync(video: HTMLVideoElement) {
-  if (state.video === video) return;
-  state.cleanupVideo?.();
-  state.cleanupCalibration?.();
-  state.video = video;
-
-  const disposeCalibration = attachCalibration(video);
-
-  state.cleanupVideo = () => {
-    state.video = null;
-    state.cleanupVideo = null;
-  };
-  state.cleanupCalibration = () => {
-    disposeCalibration();
-    state.cleanupCalibration = null;
-  };
 }
 
 // --- Translation run ---
@@ -88,9 +65,6 @@ async function runTranslation(resumeFrom: Cue[] | null) {
 
     const resumeCues = resumeFrom ? state.cues.snapshot() : null;
     state.onTranslationStarted(cues.length, resumeCues);
-
-    const earlyVideo = findVideo();
-    if (earlyVideo) attachVideoSync(earlyVideo);
 
     let lastCacheWrite = 0;
     const CACHE_WRITE_INTERVAL_MS = 2000;
@@ -156,8 +130,6 @@ export async function loadOrTranslate() {
     const isPartial = cached.complete === false;
     state.onCachedCuesHydrated(cached.cues, !isPartial);
     await hydrateSourceCues(state.subtitleUrl, cached);
-    const video = findVideo();
-    if (video) attachVideoSync(video);
     if (isPartial && state.enabled && isMainVideoPlaying()) {
       void runTranslation(cached.cues.slice());
     }
@@ -202,8 +174,7 @@ export function onEnabledChanged(next: boolean) {
 /** Playback transitions — start/resume on play, abort only when the user
  *  leaves the playback page (video element gone). Pausing in the player
  *  lets the in-flight translation keep running so resume is seamless. */
-export function onPlaybackChange(next: PlaybackState) {
-  state.onPlaybackChanged(next);
+export function onPlaybackTransition(next: PlaybackState) {
   if (next === "playing") {
     if (state.subtitleUrl && state.phase !== "translating") void loadOrTranslate();
     return;
@@ -212,9 +183,4 @@ export function onPlaybackChange(next: PlaybackState) {
     state.abortCtrl?.abort();
     state.abortCtrl = null;
   }
-}
-
-/** A qualifying video element appeared — attach sync if we're translating. */
-export function onVideoFound(video: HTMLVideoElement) {
-  if (video !== state.video && state.cues.size > 0) attachVideoSync(video);
 }
