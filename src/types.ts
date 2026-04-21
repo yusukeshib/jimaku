@@ -20,12 +20,17 @@ export type CacheEntry = {
   complete?: boolean;
 };
 
-export type Status = "idle" | "detected" | "translating" | "ready" | "error";
+export type TranslationPhase = "idle" | "translating" | "complete" | "error";
+
+export type PlaybackState = "absent" | "paused" | "playing";
 
 export type StateSnapshot = {
-  status: Status;
-  progress: { done: number; total: number } | null;
-  error: string | null;
+  translation: {
+    phase: TranslationPhase;
+    progress: { done: number; total: number } | null;
+    error: string | null;
+  };
+  playback: PlaybackState;
   hasSubtitle: boolean;
   enabled: boolean;
   title: string | null;

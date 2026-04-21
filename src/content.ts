@@ -1,16 +1,14 @@
-import { applyHideOriginal, updateOverlayPosition } from "./content/overlay";
+import { applyHideOriginal, setOverlayText, updateOverlayPosition } from "./content/overlay";
 import { watchForPlayback, watchForVideo } from "./content/playback";
 import { state } from "./content/state";
 import { createTrackResolver } from "./content/trackResolver";
 import {
   applySubtitleUrl,
-  configureTranslation,
+  attachVideoSync,
   onEnabledChanged,
   onPlaybackChange,
   onTargetLanguageChanged,
   onVideoFound,
-  repaintOverlay,
-  resetForTabReset,
 } from "./content/translation";
 import {
   DEFAULT_TARGET_LANGUAGE,
@@ -24,8 +22,6 @@ import type { ContentReady, ExtensionMessage, StateSnapshot, StateUpdate } from 
 // ---------- Snapshot + broadcast ----------
 
 function findTitle(): string | null {
-  // Prefer explicit player-chrome titles; fall back to the document heading
-  // and then to <title>, stripping Amazon's wrapper text.
   const sels = [".atvwebplayersdk-title-text", '[class*="TitleContainer"] [class*="title"]', "h1"];
   for (const sel of sels) {
     const el = document.querySelector(sel) as HTMLElement | null;
@@ -41,9 +37,12 @@ function findTitle(): string | null {
 
 function snapshot(): StateSnapshot {
   return {
-    status: state.status,
-    progress: state.progress,
-    error: state.error,
+    translation: {
+      phase: state.phase,
+      progress: state.progress,
+      error: state.error,
+    },
+    playback: state.playback,
     hasSubtitle: state.subtitleUrl !== null,
     enabled: state.enabled,
     title: findTitle(),
@@ -55,24 +54,26 @@ function broadcastState() {
   chrome.runtime.sendMessage(msg).catch(() => {});
 }
 
-// ---------- Wiring ----------
+// ---------- Overlay subscriber (pure derivation from state) ----------
 
-configureTranslation({
-  broadcast: broadcastState,
-  getPosContext: () => ({ video: state.video, hideOriginal: state.hideOriginal }),
-});
+function paintOverlay() {
+  const v = state.video;
+  if (!state.showTranslated || !v) {
+    setOverlayText("");
+  } else {
+    const cue = state.cues.findAt(v.currentTime - state.timeOffset);
+    setOverlayText(cue ? cue.text : "");
+  }
+  applyHideOriginal(state.hideOriginal);
+  updateOverlayPosition({ video: state.video, hideOriginal: state.hideOriginal });
+}
+
+// ---------- Track resolver ----------
 
 const trackResolver = createTrackResolver({
   getCurrentUrl: () => state.subtitleUrl,
   onResolved: (url) => void applySubtitleUrl(url),
 });
-
-// ---------- Overlay lifecycle ----------
-
-function reapplyOverlayChrome() {
-  applyHideOriginal(state.hideOriginal);
-  updateOverlayPosition({ video: state.video, hideOriginal: state.hideOriginal });
-}
 
 // ---------- chrome.runtime messaging ----------
 
@@ -83,7 +84,7 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
       break;
     case "TAB_RESET":
       trackResolver.clear();
-      resetForTabReset();
+      state.onTabReset();
       break;
     case "POPUP_GET_STATE":
       broadcastState();
@@ -93,8 +94,6 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
 
 // ---------- Bootstrap ----------
 
-// Load all settings before announcing readiness so message handlers don't
-// act on default values (e.g. auto-start when the user has enabled=false).
 void (async () => {
   const [showTranslated, hideOriginal, targetLanguage, enabled] = await Promise.all([
     getShowTranslated(),
@@ -102,40 +101,55 @@ void (async () => {
     getTargetLanguage(),
     getEnabled(),
   ]);
-  state.showTranslated = showTranslated;
-  state.hideOriginal = hideOriginal;
-  state.targetLanguage = targetLanguage;
-  state.enabled = enabled;
-  reapplyOverlayChrome();
-  repaintOverlay();
+  state.setShowTranslated(showTranslated);
+  state.setHideOriginal(hideOriginal);
+  state.setTargetLanguage(targetLanguage);
+  state.setEnabled(enabled);
+
+  // Subscribe after bootstrap so a single initial notify covers both.
+  state.subscribe(broadcastState);
+  state.subscribe(paintOverlay);
+  paintOverlay();
+  broadcastState();
+
   const readyMsg: ContentReady = { type: "CONTENT_READY" };
   chrome.runtime.sendMessage(readyMsg).catch(() => {});
 })();
 
+// ---------- Storage settings ----------
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
-  if (changes.showTranslated) {
-    state.showTranslated = changes.showTranslated.newValue !== false;
-    repaintOverlay();
-  }
-  if (changes.hideOriginal) {
-    state.hideOriginal = changes.hideOriginal.newValue === true;
-    reapplyOverlayChrome();
-  }
+  if (changes.showTranslated) state.setShowTranslated(changes.showTranslated.newValue !== false);
+  if (changes.hideOriginal) state.setHideOriginal(changes.hideOriginal.newValue === true);
   if (changes.targetLanguage) {
     const v = changes.targetLanguage.newValue;
-    state.targetLanguage = typeof v === "string" && v.trim() ? v : DEFAULT_TARGET_LANGUAGE;
+    state.setTargetLanguage(typeof v === "string" && v.trim() ? v : DEFAULT_TARGET_LANGUAGE);
     void onTargetLanguageChanged();
   }
-  if (changes.enabled) {
-    onEnabledChanged(changes.enabled.newValue !== false);
-  }
+  if (changes.enabled) onEnabledChanged(changes.enabled.newValue !== false);
 });
 
 // ---------- DOM lifecycle ----------
 
-watchForVideo(onVideoFound);
+watchForVideo((video) => {
+  onVideoFound(video);
+  if (video !== state.video) attachVideoSync(video);
+});
 watchForPlayback(onPlaybackChange);
+
+// Video clock drives re-paint (time-driven re-derive, not a state change).
+// We listen inside a MutationObserver-style pattern: re-attach whenever the
+// tracked video element changes. Simpler: check on every paint — if the video
+// changed since last listen, rebind.
+let boundVideo: HTMLVideoElement | null = null;
+function rebindTimeupdate() {
+  if (state.video === boundVideo) return;
+  if (boundVideo) boundVideo.removeEventListener("timeupdate", paintOverlay);
+  boundVideo = state.video;
+  if (boundVideo) boundVideo.addEventListener("timeupdate", paintOverlay);
+}
+state.subscribe(rebindTimeupdate);
 
 window.addEventListener("resize", () =>
   updateOverlayPosition({ video: state.video, hideOriginal: state.hideOriginal }),
@@ -143,9 +157,7 @@ window.addEventListener("resize", () =>
 document.addEventListener("fullscreenchange", () =>
   updateOverlayPosition({ video: state.video, hideOriginal: state.hideOriginal }),
 );
-// When the page is going away (tab close, navigation), abort any in-flight
-// translation so the fetch is cancelled and the partial cache write we did
-// during streaming is what the next visit picks up.
+// Tab closing — abort in-flight so streaming doesn't continue after unmount.
 window.addEventListener("pagehide", () => {
   state.abortCtrl?.abort();
 });

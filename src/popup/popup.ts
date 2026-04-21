@@ -12,7 +12,7 @@ import {
   setTargetLanguage,
 } from "../lib/cache";
 import { MODEL } from "../lib/translate";
-import type { ExtensionMessage, PopupGetState, StateSnapshot, Status } from "../types";
+import type { ExtensionMessage, PopupGetState, StateSnapshot } from "../types";
 
 const LANGUAGES = [
   "Japanese",
@@ -136,6 +136,65 @@ async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
   return tab ?? null;
 }
 
+// --- Pure UI derivation ---
+
+type PopupView = {
+  dotClass: "idle" | "active" | "error";
+  label: string;
+  progressPct: number | null;
+  errorMessage: string | null;
+};
+
+function deriveView(s: StateSnapshot): PopupView {
+  if (!s.enabled) {
+    return { dotClass: "idle", label: "Auto-translate is off.", progressPct: null, errorMessage: null };
+  }
+  const t = s.translation;
+  if (t.phase === "error") {
+    return {
+      dotClass: "error",
+      label: "Something went wrong.",
+      progressPct: null,
+      errorMessage: t.error,
+    };
+  }
+  if (t.phase === "translating") {
+    const p = t.progress;
+    const done = p?.done ?? 0;
+    const total = p?.total ?? 0;
+    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
+    return {
+      dotClass: "active",
+      label: `Translating… ${done}/${total || "?"} (${pct}%)`,
+      progressPct: pct,
+      errorMessage: null,
+    };
+  }
+  if (t.phase === "complete") {
+    return {
+      dotClass: "active",
+      label: `${currentLanguage} subtitles ready.`,
+      progressPct: null,
+      errorMessage: null,
+    };
+  }
+  // phase === "idle"
+  if (s.hasSubtitle) {
+    return {
+      dotClass: "active",
+      label: "Subtitle track detected.",
+      progressPct: null,
+      errorMessage: null,
+    };
+  }
+  return {
+    dotClass: "active",
+    label: "Waiting for a subtitle track…",
+    progressPct: null,
+    errorMessage: null,
+  };
+}
+
 function renderUnreachable() {
   dot.className = "dot idle";
   statusText.textContent = "Open a Prime Video page to use Jimaku.";
@@ -144,36 +203,26 @@ function renderUnreachable() {
 }
 
 function render(s: StateSnapshot) {
-  dot.className = `dot ${s.status}`;
-  bar.classList.add("hidden");
-  err.style.display = "none";
+  const v = deriveView(s);
+  dot.className = `dot ${v.dotClass}`;
+  statusText.textContent = v.label;
+  if (v.progressPct !== null) {
+    bar.classList.remove("hidden");
+    barFill.style.width = `${v.progressPct}%`;
+  } else {
+    bar.classList.add("hidden");
+  }
+  if (v.errorMessage) {
+    err.style.display = "";
+    err.textContent = v.errorMessage;
+  } else {
+    err.style.display = "none";
+  }
   if (s.title) {
     titleText.textContent = s.title;
     titleText.style.display = "";
   } else {
     titleText.style.display = "none";
-  }
-
-  const label: Record<Status, string> = {
-    idle: "Waiting for a subtitle track…",
-    detected: "Subtitle track detected.",
-    translating: "Translating…",
-    ready: `${currentLanguage} subtitles ready.`,
-    error: "Something went wrong.",
-  };
-  statusText.textContent = label[s.status];
-
-  if (s.status === "translating") {
-    const p = s.progress;
-    const total = p?.total ?? 0;
-    const done = p?.done ?? 0;
-    const pct = total > 0 ? Math.round((done / total) * 100) : 0;
-    bar.classList.remove("hidden");
-    barFill.style.width = `${pct}%`;
-    statusText.textContent = `Translating… ${done}/${total || "?"} (${pct}%)`;
-  } else if (s.status === "error" && s.error) {
-    err.style.display = "";
-    err.textContent = s.error;
   }
 }
 

@@ -83,83 +83,100 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender) => {
   }
 });
 
-const STATUS_COLORS: Record<StateSnapshot["status"], string> = {
-  idle: "#9ca3af",
-  detected: "#d48a00",
-  translating: "#1f6feb",
-  ready: "#1a9b3f",
-  error: "#b91c1c",
-};
-const DISABLED_COLOR = "#4b5563";
+// --- UI derivation (pure functions of state) ---
 
-function drawIcon(size: number, color: string, waiting: boolean): ImageData {
+const ACTIVE_COLOR = "#1f6feb";
+const ERROR_COLOR = "#b91c1c";
+const DISABLED_COLOR = "#4b5563";
+const IDLE_COLOR = "#9ca3af";
+
+type IconSpec = { color: string; variant: "cc" | "dots" };
+type BadgeSpec = { text: string; color: string } | null;
+
+function deriveIcon(s: StateSnapshot): IconSpec {
+  if (!s.enabled) return { color: DISABLED_COLOR, variant: "cc" };
+  if (s.translation.phase === "error") return { color: ERROR_COLOR, variant: "cc" };
+  // On a Prime Video page (content script is live) with no subtitle URL yet
+  // — show a loading "..." to signal "waiting to detect".
+  if (s.translation.phase === "idle" && !s.hasSubtitle) {
+    return { color: ACTIVE_COLOR, variant: "dots" };
+  }
+  return { color: ACTIVE_COLOR, variant: "cc" };
+}
+
+function deriveBadge(s: StateSnapshot): BadgeSpec {
+  if (!s.enabled) return null;
+  if (s.translation.phase === "translating") {
+    const p = s.translation.progress;
+    const pct = p && p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
+    return { text: `${pct}%`, color: ACTIVE_COLOR };
+  }
+  if (s.translation.phase === "complete" && s.playback !== "absent") {
+    return { text: "100%", color: ACTIVE_COLOR };
+  }
+  if (s.translation.phase === "error") return { text: "!", color: ERROR_COLOR };
+  return null;
+}
+
+// --- Icon drawing ---
+
+function drawIcon(size: number, spec: IconSpec): ImageData {
   const canvas = new OffscreenCanvas(size, size);
   const ctx = canvas.getContext("2d");
   if (!ctx) throw new Error("OffscreenCanvas 2D context unavailable");
   const r = Math.max(2, Math.round(size * 0.22));
-  ctx.fillStyle = color;
+  ctx.fillStyle = spec.color;
   ctx.beginPath();
   ctx.roundRect(0, 0, size, size, r);
   ctx.fill();
   ctx.fillStyle = "#fff";
+  if (spec.variant === "dots") {
+    const dotR = Math.max(2, Math.round(size * 0.12));
+    const gap = dotR * 3;
+    const cy = size / 2;
+    const cx = size / 2;
+    for (let i = -1; i <= 1; i++) {
+      ctx.beginPath();
+      ctx.arc(cx + i * gap, cy, dotR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    return ctx.getImageData(0, 0, size, size);
+  }
   ctx.font = `900 ${Math.round(size * 0.55)}px system-ui, -apple-system, "Helvetica Neue", sans-serif`;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("CC", size / 2, size / 2 + Math.round(size * 0.04));
-  if (waiting) {
-    // Three dots in the bottom-right to signal "waiting for playback".
-    const dotR = Math.max(1, Math.round(size * 0.06));
-    const gap = Math.round(size * 0.08);
-    const y = size - dotR - Math.round(size * 0.08);
-    const rightEdge = size - Math.round(size * 0.08);
-    ctx.fillStyle = STATUS_COLORS.translating;
-    for (let i = 0; i < 3; i++) {
-      const x = rightEdge - dotR - i * gap;
-      ctx.beginPath();
-      ctx.arc(x, y, dotR, 0, Math.PI * 2);
-      ctx.fill();
-    }
-  }
   return ctx.getImageData(0, 0, size, size);
 }
 
-function iconSet(color: string, waiting: boolean = false) {
+function iconSet(spec: IconSpec) {
   return {
-    "16": drawIcon(16, color, waiting),
-    "32": drawIcon(32, color, waiting),
-    "48": drawIcon(48, color, waiting),
-    "128": drawIcon(128, color, waiting),
+    "16": drawIcon(16, spec),
+    "32": drawIcon(32, spec),
+    "48": drawIcon(48, spec),
+    "128": drawIcon(128, spec),
   };
 }
 
 async function applyIcon(tabId: number, s: StateSnapshot) {
-  const color = s.enabled ? STATUS_COLORS[s.status] : DISABLED_COLOR;
-  // "Waiting" = subtitle detected but translation hasn't kicked off yet
-  // (usually because playback hasn't started on the detail page).
-  const waiting = s.enabled && s.status === "detected";
-  await chrome.action.setIcon({ tabId, imageData: iconSet(color, waiting) }).catch(() => {});
+  await chrome.action.setIcon({ tabId, imageData: iconSet(deriveIcon(s)) }).catch(() => {});
+}
+
+function applyBadge(tabId: number, s: StateSnapshot) {
+  const spec = deriveBadge(s);
+  if (!spec) {
+    chrome.action.setBadgeText({ tabId, text: "" });
+    return;
+  }
+  chrome.action.setBadgeBackgroundColor({ tabId, color: spec.color });
+  chrome.action.setBadgeText({ tabId, text: spec.text });
 }
 
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.action.setIcon({ imageData: iconSet(STATUS_COLORS.idle) }).catch(() => {});
+  chrome.action
+    .setIcon({ imageData: iconSet({ color: IDLE_COLOR, variant: "cc" }) })
+    .catch(() => {});
 });
-
-function applyBadge(tabId: number, s: StateSnapshot) {
-  const action = chrome.action;
-  if (s.status === "translating") {
-    const p = s.progress;
-    const pct = p && p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
-    action.setBadgeBackgroundColor({ tabId, color: STATUS_COLORS.translating });
-    action.setBadgeText({ tabId, text: `${pct}%` });
-    return;
-  }
-  if (s.status === "error") {
-    action.setBadgeBackgroundColor({ tabId, color: STATUS_COLORS.error });
-    action.setBadgeText({ tabId, text: "!" });
-    return;
-  }
-  action.setBadgeText({ tabId, text: "" });
-}
 
 // Clear tab state on full page load
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -180,9 +197,7 @@ chrome.tabs.onUpdated.addListener((tabId, info, tab) => {
   resetTab(tabId);
 });
 
-// SPA navigation (pushState/replaceState) inside Prime Video — only reset if
-// the title actually changed, since the player routinely rewrites the URL
-// (ref= params, autoplay toggles) while the user keeps watching the same asin.
+// SPA navigation inside Prime Video — only reset on actual title change.
 chrome.webNavigation.onHistoryStateUpdated.addListener(
   (details) => {
     if (details.frameId !== 0) return;

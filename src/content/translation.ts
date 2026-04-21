@@ -1,28 +1,10 @@
 import { getApiKey, getCache, setCache } from "../lib/cache";
 import { loadCues } from "../lib/subtitle";
 import { AbortError, MODEL, translateCues } from "../lib/translate";
-import type { Cue, TranslatedCue } from "../types";
+import type { Cue, PlaybackState } from "../types";
 import { attachCalibration } from "./calibration";
-import { setOverlayText, updateOverlayPosition } from "./overlay";
 import { findVideo, isMainVideoPlaying } from "./playback";
 import { state } from "./state";
-
-export type TranslationCallbacks = {
-  /** Broadcast status / progress changes to background + popup. */
-  broadcast: () => void;
-  /** Position context for the overlay. Provided by the orchestrator so the
-   *  translation controller doesn't need to know about hideOriginal etc. */
-  getPosContext: () => { video: HTMLVideoElement | null; hideOriginal: boolean };
-};
-
-let cbs: TranslationCallbacks = {
-  broadcast: () => {},
-  getPosContext: () => ({ video: null, hideOriginal: false }),
-};
-
-export function configureTranslation(next: TranslationCallbacks) {
-  cbs = next;
-}
 
 // --- Internal helpers ---
 
@@ -47,26 +29,9 @@ async function hydrateSourceCues(url: string, cached: { sourceCues?: Cue[] }) {
   }
 }
 
-function paintCurrentCue() {
-  if (!state.showTranslated) {
-    setOverlayText("");
-    return;
-  }
-  const v = state.video;
-  if (!v) return;
-  const cue = state.cues.findAt(v.currentTime - state.timeOffset);
-  setOverlayText(cue ? cue.text : "");
-  updateOverlayPosition(cbs.getPosContext());
-}
-
-export function repaintOverlay() {
-  paintCurrentCue();
-}
-
 /**
- * Bind a video element to the overlay: timeupdate drives the cue display
- * and calibration keeps `state.timeOffset` in sync with Prime Video's
- * native caption stream.
+ * Bind a video element to calibration + lifecycle cleanup. Cue painting is
+ * handled by a state subscriber in the orchestrator (content.ts), not here.
  */
 export function attachVideoSync(video: HTMLVideoElement) {
   if (state.video === video) return;
@@ -74,12 +39,9 @@ export function attachVideoSync(video: HTMLVideoElement) {
   state.cleanupCalibration?.();
   state.video = video;
 
-  const onTimeUpdate = () => paintCurrentCue();
-  video.addEventListener("timeupdate", onTimeUpdate);
-  const disposeCalibration = attachCalibration(video, paintCurrentCue);
+  const disposeCalibration = attachCalibration(video);
 
   state.cleanupVideo = () => {
-    video.removeEventListener("timeupdate", onTimeUpdate);
     state.video = null;
     state.cleanupVideo = null;
   };
@@ -89,31 +51,21 @@ export function attachVideoSync(video: HTMLVideoElement) {
   };
 }
 
-/** Clear per-URL state and blank the overlay. */
-function clearPerUrl() {
-  state.clearPerUrl();
-  setOverlayText("");
-}
-
 // --- Translation run ---
 
-async function runTranslation(resumeFrom: TranslatedCue[] | null) {
+async function runTranslation(resumeFrom: Cue[] | null) {
   if (!state.enabled || !state.subtitleUrl) return;
-  // Guard on the abort controller, not on status. Status can lag (e.g. an
+  // Guard on the abort controller, not on phase. Phase can lag (e.g. an
   // aborted prior run's `finally` hasn't executed yet) which would wrongly
   // block a freshly-kicked translation.
   if (state.abortCtrl !== null) return;
 
   const apiKey = await getApiKey();
   if (!apiKey) {
-    state.error = "No API key set. Open the extension options to add one.";
-    state.transition("error", "missing api key");
-    cbs.broadcast();
+    state.onTranslationFailed("No API key set. Open the extension options to add one.");
     return;
   }
 
-  state.error = null;
-  state.transition("translating", "runTranslation start");
   const ctrl = new AbortController();
   state.abortCtrl = ctrl;
   const { signal } = ctrl;
@@ -134,10 +86,8 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
       state.sourceIndex.set(cues);
     }
 
-    if (resumeFrom && resumeFrom.length > 0) state.cues.set(resumeFrom);
-    else state.cues.clear();
-    state.progress = { done: resumeFrom?.length ?? 0, total: cues.length };
-    cbs.broadcast();
+    const resumeCues = resumeFrom ? state.cues.snapshot() : null;
+    state.onTranslationStarted(cues.length, resumeCues);
 
     const earlyVideo = findVideo();
     if (earlyVideo) attachVideoSync(earlyVideo);
@@ -148,16 +98,14 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
     const translated = await translateCues(cues, apiKey, {
       signal,
       targetLanguage: targetLang,
-      resumeFrom: resumeFrom ?? undefined,
+      resumeFrom: resumeCues ?? undefined,
       onProgress: (done, total) => {
         if (!stillCurrent()) return;
-        state.progress = { done, total };
-        cbs.broadcast();
+        state.onTranslationProgress(done, total);
       },
       onCue: (cue) => {
         if (!stillCurrent()) return;
-        state.cues.append(cue);
-        if (state.video) paintCurrentCue();
+        state.onTranslationCueAppended(cue);
         const now = Date.now();
         if (now - lastCacheWrite >= CACHE_WRITE_INTERVAL_MS && state.cues.size > 0) {
           lastCacheWrite = now;
@@ -174,9 +122,7 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
 
     if (!stillCurrent()) return;
 
-    state.cues.set(translated);
-    state.transition("ready", "runTranslation complete");
-    cbs.broadcast();
+    state.onTranslationComplete(translated);
 
     await setCache(targetUrl, targetLang, {
       translatedAt: Date.now(),
@@ -186,11 +132,12 @@ async function runTranslation(resumeFrom: TranslatedCue[] | null) {
       complete: true,
     });
   } catch (e) {
-    if (e instanceof AbortError || (e as Error).name === "AbortError") return;
+    if (e instanceof AbortError || (e as Error).name === "AbortError") {
+      state.onTranslationAborted();
+      return;
+    }
     if (!stillCurrent()) return;
-    state.error = e instanceof Error ? e.message : String(e);
-    state.transition("error", "runTranslation threw");
-    cbs.broadcast();
+    state.onTranslationFailed(e instanceof Error ? e.message : String(e));
   } finally {
     if (state.abortCtrl === ctrl) state.abortCtrl = null;
   }
@@ -206,29 +153,25 @@ export async function loadOrTranslate() {
   if (!state.subtitleUrl) return;
   const cached = await getCache(state.subtitleUrl, state.targetLanguage);
   if (cached) {
-    state.cues.set(cached.cues);
+    const isPartial = cached.complete === false;
+    state.onCachedCuesHydrated(cached.cues, !isPartial);
     await hydrateSourceCues(state.subtitleUrl, cached);
     const video = findVideo();
     if (video) attachVideoSync(video);
-    const isPartial = cached.complete === false;
     if (isPartial && state.enabled && isMainVideoPlaying()) {
       void runTranslation(cached.cues.slice());
-      return;
     }
-    state.transition(isPartial ? "detected" : "ready", "cache hydrated");
-    cbs.broadcast();
     return;
   }
-  state.transition("detected", "subtitle detected, no cache");
-  cbs.broadcast();
+  // No cache. Phase stays "idle"; runTranslation will flip to "translating".
   if (state.enabled && isMainVideoPlaying()) void runTranslation(null);
 }
 
 /** Switch to a new subtitle URL (typically fired by the track resolver). */
 export async function applySubtitleUrl(url: string) {
   if (state.subtitleUrl === url) return;
-  clearPerUrl();
-  state.subtitleUrl = url;
+  state.onSubtitleUrlSwitching();
+  state.onSubtitleDetected(url);
   await loadOrTranslate();
 }
 
@@ -236,59 +179,42 @@ export async function applySubtitleUrl(url: string) {
  *  re-evaluate under the new one. */
 export async function onTargetLanguageChanged() {
   const url = state.subtitleUrl;
-  clearPerUrl();
-  if (!url) {
-    state.transition("idle", "target language changed, no URL");
-    cbs.broadcast();
-    return;
-  }
-  state.subtitleUrl = url;
+  state.onSubtitleUrlSwitching();
+  if (!url) return;
+  state.onSubtitleDetected(url);
   await loadOrTranslate();
 }
 
 /** User flipped the Auto-translate toggle. */
 export function onEnabledChanged(next: boolean) {
   const prev = state.enabled;
-  state.enabled = next;
+  state.setEnabled(next);
   if (!next) {
     state.abortCtrl?.abort();
     state.abortCtrl = null;
-    setOverlayText("");
-    if (state.status === "translating") {
-      state.transition(state.subtitleUrl ? "detected" : "idle", "disabled while translating");
-    }
-    cbs.broadcast();
     return;
   }
-  cbs.broadcast();
-  if (!prev && state.subtitleUrl && state.status !== "translating") {
+  if (!prev && state.subtitleUrl && state.phase !== "translating") {
     void loadOrTranslate();
   }
 }
 
-/** Playback started or stopped — start/resume or abort in-flight. */
-export function onPlaybackChange(playing: boolean) {
-  if (playing) {
-    if (state.subtitleUrl && state.status !== "translating") void loadOrTranslate();
+/** Playback transitions — start/resume on play, abort only when the user
+ *  leaves the playback page (video element gone). Pausing in the player
+ *  lets the in-flight translation keep running so resume is seamless. */
+export function onPlaybackChange(next: PlaybackState) {
+  state.onPlaybackChanged(next);
+  if (next === "playing") {
+    if (state.subtitleUrl && state.phase !== "translating") void loadOrTranslate();
     return;
   }
-  if (state.status === "translating") {
+  if (next === "absent" && state.phase === "translating") {
     state.abortCtrl?.abort();
     state.abortCtrl = null;
-    state.transition("detected", "playback paused mid-translation");
-    cbs.broadcast();
   }
 }
 
 /** A qualifying video element appeared — attach sync if we're translating. */
 export function onVideoFound(video: HTMLVideoElement) {
   if (video !== state.video && state.cues.size > 0) attachVideoSync(video);
-}
-
-/** Reset everything for this tab (fired on TAB_RESET). */
-export function resetForTabReset() {
-  clearPerUrl();
-  state.subtitleUrl = null;
-  state.transition("idle", "tab reset");
-  cbs.broadcast();
 }

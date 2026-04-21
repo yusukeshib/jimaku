@@ -4,6 +4,15 @@
 // of a long-duration <video>.
 const MAIN_VIDEO_MIN_DURATION = 300;
 
+// Prime Video pre-mounts the long episode <video> on the detail page but
+// leaves it with a 0×0 bounding box until the player opens. Require a real
+// layout box so "playback page" means "player is actually up."
+function isMainVideoQualified(v: HTMLVideoElement): boolean {
+  if (v.videoWidth === 0 || v.duration <= MAIN_VIDEO_MIN_DURATION) return false;
+  const r = v.getBoundingClientRect();
+  return r.width > 0 && r.height > 0;
+}
+
 /**
  * Prime Video keeps a paused preroll-ad <video> alongside the playing main
  * <video>. Prefer whichever is actually playing, falling back to the longest.
@@ -20,7 +29,7 @@ export function findVideo(): HTMLVideoElement | null {
 
 export function isMainVideoPlaying(): boolean {
   return Array.from(document.querySelectorAll("video")).some(
-    (v) => !v.paused && v.videoWidth > 0 && v.duration > MAIN_VIDEO_MIN_DURATION,
+    (v) => !v.paused && isMainVideoQualified(v),
   );
 }
 
@@ -57,23 +66,30 @@ export function watchForVideo(onFound: VideoFoundHandler): () => void {
   };
 }
 
-export type PlaybackHandler = (playing: boolean) => void;
+export type PlaybackState = "playing" | "paused" | "absent";
+export type PlaybackHandler = (state: PlaybackState) => void;
+
+function currentPlaybackState(): PlaybackState {
+  const videos = Array.from(document.querySelectorAll("video")).filter(isMainVideoQualified);
+  if (videos.length === 0) return "absent";
+  return videos.some((v) => !v.paused) ? "playing" : "paused";
+}
 
 /**
- * Poll the video element state every 500ms and emit on transitions between
- * "main video playing" and "not". More reliable than `play`/`pause` events,
- * which can fire before `duration` is known when Prime Video swaps the
- * trailer element out for the episode element.
+ * Poll the video element every 500ms and emit on transitions between
+ * playing / paused / absent. Distinguishing paused from absent lets callers
+ * keep an in-flight translation running across in-player pauses while still
+ * aborting when the user leaves the playback page.
  *
  * Returns a disposer.
  */
 export function watchForPlayback(onChange: PlaybackHandler): () => void {
-  let wasPlaying = false;
+  let prev: PlaybackState | null = null;
   const interval = window.setInterval(() => {
-    const playing = isMainVideoPlaying();
-    if (playing === wasPlaying) return;
-    wasPlaying = playing;
-    onChange(playing);
+    const next = currentPlaybackState();
+    if (next === prev) return;
+    prev = next;
+    onChange(next);
   }, 500);
   return () => window.clearInterval(interval);
 }

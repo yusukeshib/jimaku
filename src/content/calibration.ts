@@ -16,12 +16,12 @@ const OFFSET_UPDATE_THRESHOLD_S = 0.05;
  * text matches one of our indexed cues, the offset is
  * `video.currentTime - matchedCue.start`.
  *
- * `onCalibrated` fires after `state.timeOffset` changes so the orchestrator
- * can repaint the overlay immediately.
+ * Updates `state.timeOffset` via `onTimeOffsetChanged`; state subscribers
+ * repaint the overlay automatically.
  *
  * Returns a disposer.
  */
-export function attachCalibration(video: HTMLVideoElement, onCalibrated: () => void): () => void {
+export function attachCalibration(video: HTMLVideoElement): () => void {
   let lastSeenText = "";
 
   const tryCalibrate = () => {
@@ -44,8 +44,7 @@ export function attachCalibration(video: HTMLVideoElement, onCalibrated: () => v
     );
     const newOffset = t - best.start;
     if (Math.abs(newOffset - state.timeOffset) < OFFSET_UPDATE_THRESHOLD_S) return;
-    state.timeOffset = newOffset;
-    onCalibrated();
+    state.onTimeOffsetChanged(newOffset);
   };
 
   // Scope narrowly when possible: observing the whole body subtree with
