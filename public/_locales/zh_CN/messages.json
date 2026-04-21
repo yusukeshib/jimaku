@@ -1,5 +1,5 @@
 {
-  "tagline": { "message": "使用 Claude 翻译 Prime Video 的字幕。" },
+  "tagline": { "message": "使用 AI 翻译 Prime Video 的字幕。" },
   "status_checking": { "message": "检查中…" },
   "status_open_prime_video": { "message": "请打开 Prime Video 页面以使用 Jimaku。" },
   "status_auto_translate_off": { "message": "自动翻译已关闭。" },

@@ -1,5 +1,5 @@
 {
-  "tagline": { "message": "Translates Prime Video subtitles with Claude." },
+  "tagline": { "message": "Translates Prime Video subtitles with AI." },
   "status_checking": { "message": "Checking…" },
   "status_open_prime_video": { "message": "Open a Prime Video page to use Jimaku." },
   "status_auto_translate_off": { "message": "Auto-translate is off." },
