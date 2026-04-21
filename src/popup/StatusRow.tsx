@@ -1,3 +1,4 @@
+import { t } from "../lib/i18n";
 import type { StateSnapshot } from "../types";
 
 type Props = {
@@ -18,39 +19,39 @@ function deriveView(snapshot: StateSnapshot, language: string): View {
   if (!snapshot.enabled) {
     return {
       dotClass: "idle",
-      label: "Auto-translate is off.",
+      label: t("status_auto_translate_off"),
       progressPct: null,
       errorMessage: null,
       title: snapshot.title,
     };
   }
-  const t = snapshot.translation;
-  if (t.phase === "error") {
+  const tr = snapshot.translation;
+  if (tr.phase === "error") {
     return {
       dotClass: "error",
-      label: "Something went wrong.",
+      label: t("status_something_went_wrong"),
       progressPct: null,
-      errorMessage: t.error,
+      errorMessage: tr.error,
       title: snapshot.title,
     };
   }
-  if (t.phase === "translating") {
-    const p = t.progress;
+  if (tr.phase === "translating") {
+    const p = tr.progress;
     const done = p?.done ?? 0;
     const total = p?.total ?? 0;
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     return {
       dotClass: "active",
-      label: `Translating… ${done}/${total || "?"} (${pct}%)`,
+      label: t("status_translating", [done, total || "?", pct]),
       progressPct: pct,
       errorMessage: null,
       title: snapshot.title,
     };
   }
-  if (t.phase === "complete") {
+  if (tr.phase === "complete") {
     return {
       dotClass: "active",
-      label: `${language} subtitles ready.`,
+      label: t("status_subtitles_ready", [language]),
       progressPct: null,
       errorMessage: null,
       title: snapshot.title,
@@ -59,7 +60,7 @@ function deriveView(snapshot: StateSnapshot, language: string): View {
   if (snapshot.hasSubtitle) {
     return {
       dotClass: "active",
-      label: "Subtitle track detected.",
+      label: t("status_subtitle_detected"),
       progressPct: null,
       errorMessage: null,
       title: snapshot.title,
@@ -67,7 +68,7 @@ function deriveView(snapshot: StateSnapshot, language: string): View {
   }
   return {
     dotClass: "active",
-    label: "Waiting for a subtitle track…",
+    label: t("status_waiting_for_subtitle"),
     progressPct: null,
     errorMessage: null,
     title: snapshot.title,
@@ -79,7 +80,7 @@ export function StatusRow({ snapshot, reachable, language }: Props) {
     return (
       <div className="status-row">
         <span className="dot idle" />
-        <span>Open a Prime Video page to use Jimaku.</span>
+        <span>{t("status_open_prime_video")}</span>
       </div>
     );
   }
@@ -87,7 +88,7 @@ export function StatusRow({ snapshot, reachable, language }: Props) {
     return (
       <div className="status-row">
         <span className="dot idle" />
-        <span>Checking…</span>
+        <span>{t("status_checking")}</span>
       </div>
     );
   }

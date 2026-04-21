@@ -1,0 +1,41 @@
+{
+  "tagline": { "message": "Translates Prime Video subtitles with Claude." },
+  "status_checking": { "message": "Checking…" },
+  "status_open_prime_video": { "message": "Open a Prime Video page to use Jimaku." },
+  "status_auto_translate_off": { "message": "Auto-translate is off." },
+  "status_something_went_wrong": { "message": "Something went wrong." },
+  "status_translating": {
+    "message": "Translating… $DONE$/$TOTAL$ ($PCT$%)",
+    "placeholders": {
+      "DONE": { "content": "$1" },
+      "TOTAL": { "content": "$2" },
+      "PCT": { "content": "$3" }
+    }
+  },
+  "status_subtitles_ready": {
+    "message": "$LANG$ subtitles ready.",
+    "placeholders": { "LANG": { "content": "$1" } }
+  },
+  "status_subtitle_detected": { "message": "Subtitle track detected." },
+  "status_waiting_for_subtitle": { "message": "Waiting for a subtitle track…" },
+  "label_auto_translate": { "message": "Auto-translate" },
+  "label_target_language": { "message": "Target language" },
+  "label_show_translated": { "message": "Show translated overlay" },
+  "label_hide_original": { "message": "Hide original subtitles" },
+  "label_translation_provider": { "message": "Translation provider" },
+  "label_api_key": { "message": "API key" },
+  "button_save": { "message": "Save" },
+  "button_connect_openrouter": { "message": "Connect with OpenRouter" },
+  "label_connected_openrouter": { "message": "Connected to OpenRouter" },
+  "button_disconnect": { "message": "Disconnect" },
+  "msg_api_key_empty": { "message": "API key is empty." },
+  "msg_saved": { "message": "Saved." },
+  "msg_opening_openrouter": { "message": "Opening OpenRouter…" },
+  "msg_connected": { "message": "Connected." },
+  "msg_disconnected": { "message": "Disconnected." },
+  "msg_signin_cancelled": { "message": "OpenRouter sign-in cancelled." },
+  "link_get_a_key": { "message": "Get a key" },
+  "hint_key_storage": {
+    "message": "Stored in chrome.storage.local in plaintext. Not for shared machines."
+  }
+}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getEnabled, setEnabled } from "../lib/cache";
+import { t } from "../lib/i18n";
 
 export function AutoTranslateToggle() {
   const [on, setOn] = useState(true);
@@ -10,7 +11,7 @@ export function AutoTranslateToggle() {
 
   return (
     <div className="toggle" style={{ marginTop: 4 }}>
-      <label htmlFor="enabled">Auto-translate</label>
+      <label htmlFor="enabled">{t("label_auto_translate")}</label>
       <input
         id="enabled"
         type="checkbox"

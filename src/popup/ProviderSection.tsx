@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { clearProviderKey, getProviderKey, setProvider, setProviderKey } from "../lib/cache";
+import { t } from "../lib/i18n";
 import { PROVIDERS, type ProviderId } from "../lib/providers";
 import type { OpenRouterConnect, OpenRouterConnectResult } from "../types";
 
@@ -77,17 +78,17 @@ export function ProviderSection({ provider, onProviderChange }: Props) {
   const handleSave = async () => {
     const key = inputValue.trim();
     if (!key) {
-      flashStatus("API key is empty.", "error");
+      flashStatus(t("msg_api_key_empty"), "error");
       return;
     }
     await setProviderKey(provider, key);
     setStoredKey(key);
-    flashStatus("Saved.", "ok");
+    flashStatus(t("msg_saved"), "ok");
   };
 
   const handleConnect = () => {
     setConnecting(true);
-    flashStatus("Opening OpenRouter…", "ok", 0);
+    flashStatus(t("msg_opening_openrouter"), "ok", 0);
     const msg: OpenRouterConnect = { type: "OPENROUTER_CONNECT" };
     chrome.runtime.sendMessage(msg, (raw?: OpenRouterConnectResult) => {
       setConnecting(false);
@@ -99,9 +100,9 @@ export function ProviderSection({ provider, onProviderChange }: Props) {
         return;
       }
       if (raw.ok) {
-        flashStatus("Connected.", "ok");
+        flashStatus(t("msg_connected"), "ok");
       } else {
-        flashStatus(raw.error || "OpenRouter sign-in cancelled.", "error");
+        flashStatus(raw.error || t("msg_signin_cancelled"), "error");
       }
     });
   };
@@ -110,12 +111,12 @@ export function ProviderSection({ provider, onProviderChange }: Props) {
     await clearProviderKey("openrouter");
     setStoredKey(null);
     setInputValue("");
-    flashStatus("Disconnected.", "ok");
+    flashStatus(t("msg_disconnected"), "ok");
   };
 
   return (
     <div className="api-row">
-      <label htmlFor="provider">Translation provider</label>
+      <label htmlFor="provider">{t("label_translation_provider")}</label>
       <select
         id="provider"
         value={provider}
@@ -128,7 +129,7 @@ export function ProviderSection({ provider, onProviderChange }: Props) {
 
       {provider !== "openrouter" && (
         <div>
-          <label htmlFor="apiKey">{meta.keyLabel}</label>
+          <label htmlFor="apiKey">{t("label_api_key")}</label>
           <div className="row">
             <input
               id="apiKey"
@@ -140,7 +141,7 @@ export function ProviderSection({ provider, onProviderChange }: Props) {
               onChange={(e) => setInputValue(e.target.value)}
             />
             <button type="button" onClick={handleSave}>
-              Save
+              {t("button_save")}
             </button>
           </div>
         </div>
@@ -148,25 +149,25 @@ export function ProviderSection({ provider, onProviderChange }: Props) {
 
       {provider === "openrouter" && storedKey && (
         <div className="connected">
-          <span className="label">Connected to OpenRouter</span>
+          <span className="label">{t("label_connected_openrouter")}</span>
           <button type="button" className="link-btn" onClick={handleDisconnect}>
-            Disconnect
+            {t("button_disconnect")}
           </button>
         </div>
       )}
 
       {provider === "openrouter" && !storedKey && (
         <button type="button" className="secondary" onClick={handleConnect} disabled={connecting}>
-          Connect with OpenRouter
+          {t("button_connect_openrouter")}
         </button>
       )}
 
       <p className={`saved${status.kind === "error" ? " error" : ""}`}>{status.text}</p>
       <p className="hint">
         <a href={meta.keyHelpUrl} target="_blank" rel="noopener">
-          Get a key
+          {t("link_get_a_key")}
         </a>{" "}
-        · Stored in chrome.storage.local in plaintext. Not for shared machines.
+        · {t("hint_key_storage")}
       </p>
     </div>
   );

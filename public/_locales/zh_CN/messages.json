@@ -1,0 +1,39 @@
+{
+  "tagline": { "message": "使用 Claude 翻译 Prime Video 的字幕。" },
+  "status_checking": { "message": "检查中…" },
+  "status_open_prime_video": { "message": "请打开 Prime Video 页面以使用 Jimaku。" },
+  "status_auto_translate_off": { "message": "自动翻译已关闭。" },
+  "status_something_went_wrong": { "message": "出现错误。" },
+  "status_translating": {
+    "message": "翻译中… $DONE$/$TOTAL$ ($PCT$%)",
+    "placeholders": {
+      "DONE": { "content": "$1" },
+      "TOTAL": { "content": "$2" },
+      "PCT": { "content": "$3" }
+    }
+  },
+  "status_subtitles_ready": {
+    "message": "$LANG$字幕已准备就绪。",
+    "placeholders": { "LANG": { "content": "$1" } }
+  },
+  "status_subtitle_detected": { "message": "已检测到字幕轨道。" },
+  "status_waiting_for_subtitle": { "message": "正在等待字幕轨道…" },
+  "label_auto_translate": { "message": "自动翻译" },
+  "label_target_language": { "message": "目标语言" },
+  "label_show_translated": { "message": "显示翻译字幕" },
+  "label_hide_original": { "message": "隐藏原始字幕" },
+  "label_translation_provider": { "message": "翻译服务商" },
+  "label_api_key": { "message": "API 密钥" },
+  "button_save": { "message": "保存" },
+  "button_connect_openrouter": { "message": "连接 OpenRouter" },
+  "label_connected_openrouter": { "message": "已连接 OpenRouter" },
+  "button_disconnect": { "message": "断开连接" },
+  "msg_api_key_empty": { "message": "API 密钥为空。" },
+  "msg_saved": { "message": "已保存。" },
+  "msg_opening_openrouter": { "message": "正在打开 OpenRouter…" },
+  "msg_connected": { "message": "已连接。" },
+  "msg_disconnected": { "message": "已断开。" },
+  "msg_signin_cancelled": { "message": "OpenRouter 登录已取消。" },
+  "link_get_a_key": { "message": "获取密钥" },
+  "hint_key_storage": { "message": "以明文形式存储在 chrome.storage.local 中。不适用于共享设备。" }
+}

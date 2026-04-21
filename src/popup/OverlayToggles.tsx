@@ -5,6 +5,7 @@ import {
   setHideOriginal,
   setShowTranslated,
 } from "../lib/cache";
+import { t } from "../lib/i18n";
 
 export function OverlayToggles() {
   const [showTranslated, setShowTranslatedState] = useState(true);
@@ -18,7 +19,7 @@ export function OverlayToggles() {
   return (
     <div className="toggles">
       <div className="toggle">
-        <label htmlFor="showTranslated">Show translated overlay</label>
+        <label htmlFor="showTranslated">{t("label_show_translated")}</label>
         <input
           id="showTranslated"
           type="checkbox"
@@ -31,7 +32,7 @@ export function OverlayToggles() {
         />
       </div>
       <div className="toggle">
-        <label htmlFor="hideOriginal">Hide original subtitles</label>
+        <label htmlFor="hideOriginal">{t("label_hide_original")}</label>
         <input
           id="hideOriginal"
           type="checkbox"

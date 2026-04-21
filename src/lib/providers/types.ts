@@ -21,7 +21,6 @@ export type ProviderMeta = {
   defaultModel: string;
   keyPlaceholder: string;
   keyHelpUrl: string;
-  keyLabel: string;
 };
 
 export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
@@ -31,7 +30,6 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     defaultModel: "claude-sonnet-4-6",
     keyPlaceholder: "sk-ant-...",
     keyHelpUrl: "https://console.anthropic.com/settings/keys",
-    keyLabel: "Anthropic API key",
   },
   openai: {
     id: "openai",
@@ -39,7 +37,6 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     defaultModel: "gpt-4.1",
     keyPlaceholder: "sk-...",
     keyHelpUrl: "https://platform.openai.com/api-keys",
-    keyLabel: "OpenAI API key",
   },
   openrouter: {
     id: "openrouter",
@@ -47,7 +44,6 @@ export const PROVIDERS: Record<ProviderId, ProviderMeta> = {
     defaultModel: "anthropic/claude-sonnet-4.6",
     keyPlaceholder: "sk-or-...",
     keyHelpUrl: "https://openrouter.ai/keys",
-    keyLabel: "OpenRouter API key",
   },
 };
 

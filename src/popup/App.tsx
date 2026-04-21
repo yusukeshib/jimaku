@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { DEFAULT_TARGET_LANGUAGE, getProvider, getTargetLanguage } from "../lib/cache";
+import { t } from "../lib/i18n";
 import type { ProviderId } from "../lib/providers";
 import type { ExtensionMessage, PopupGetState, StateSnapshot } from "../types";
 import { AutoTranslateToggle } from "./AutoTranslateToggle";
@@ -70,7 +71,7 @@ export function App() {
   return (
     <div className="wrap">
       <h1>Jimaku</h1>
-      <p className="sub">Translates Prime Video subtitles with Claude.</p>
+      <p className="sub">{t("tagline")}</p>
 
       <StatusRow snapshot={snapshot} reachable={reachable} language={language} />
 

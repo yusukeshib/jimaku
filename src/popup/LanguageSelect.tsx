@@ -1,4 +1,5 @@
 import { setTargetLanguage } from "../lib/cache";
+import { t } from "../lib/i18n";
 
 const LANGUAGES = [
   "Japanese",
@@ -42,7 +43,7 @@ export function LanguageSelect({ value, onChange }: Props) {
   const names = LANGUAGES.includes(value) ? LANGUAGES : [value, ...LANGUAGES];
   return (
     <div className="lang-row">
-      <label htmlFor="targetLanguage">Target language</label>
+      <label htmlFor="targetLanguage">{t("label_target_language")}</label>
       <select
         id="targetLanguage"
         value={value}
