@@ -5,6 +5,9 @@
     "message": "Prime VideoまたはNetflixのページを開いてJimakuをご利用ください。"
   },
   "status_auto_translate_off": { "message": "自動翻訳はオフです。" },
+  "status_provider_setup_needed": {
+    "message": "下で翻訳プロバイダーを設定してください。"
+  },
   "status_something_went_wrong": { "message": "エラーが発生しました。" },
   "status_translating": {
     "message": "翻訳中… $DONE$/$TOTAL$ ($PCT$%)",

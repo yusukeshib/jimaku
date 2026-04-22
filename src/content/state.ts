@@ -19,6 +19,7 @@ class ContentState {
   hideOriginal = false;
   targetLanguage = DEFAULT_TARGET_LANGUAGE;
   enabled = true;
+  providerReady = false;
 
   // --- Translation state ---
   subtitleUrl: string | null = null;
@@ -74,6 +75,12 @@ class ContentState {
   setEnabled(v: boolean) {
     if (this.enabled === v) return;
     this.enabled = v;
+    this.notify();
+  }
+
+  setProviderReady(v: boolean) {
+    if (this.providerReady === v) return;
+    this.providerReady = v;
     this.notify();
   }
 

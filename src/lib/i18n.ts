@@ -5,6 +5,7 @@ export type MessageKey =
   | "status_checking"
   | "status_open_streaming_page"
   | "status_auto_translate_off"
+  | "status_provider_setup_needed"
   | "status_something_went_wrong"
   | "status_translating"
   | "status_subtitles_ready"

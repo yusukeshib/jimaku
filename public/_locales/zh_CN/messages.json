@@ -3,6 +3,7 @@
   "status_checking": { "message": "检查中…" },
   "status_open_streaming_page": { "message": "请打开 Prime Video 或 Netflix 页面以使用 Jimaku。" },
   "status_auto_translate_off": { "message": "自动翻译已关闭。" },
+  "status_provider_setup_needed": { "message": "请在下方配置翻译服务商以开始使用。" },
   "status_something_went_wrong": { "message": "出现错误。" },
   "status_translating": {
     "message": "翻译中… $DONE$/$TOTAL$ ($PCT$%)",

@@ -33,16 +33,16 @@ async function hydrateSourceCues(url: string, cached: { sourceCues?: Cue[] }) {
 
 async function runTranslation(resumeFrom: Cue[] | null) {
   if (!state.enabled || !state.subtitleUrl) return;
+  // No API key yet — stay in idle rather than flipping to error. The storage
+  // listener re-kicks translation once a key lands.
+  if (!state.providerReady) return;
   // Guard on the abort controller, not on phase. Phase can lag (e.g. an
   // aborted prior run's `finally` hasn't executed yet) which would wrongly
   // block a freshly-kicked translation.
   if (state.abortCtrl !== null) return;
 
   const providerConfig = await getProviderConfig();
-  if (!providerConfig) {
-    state.onTranslationFailed("No API key set. Open the extension options to add one.");
-    return;
-  }
+  if (!providerConfig) return;
 
   const ctrl = new AbortController();
   state.abortCtrl = ctrl;
@@ -193,6 +193,19 @@ export async function onTargetLanguageChanged() {
   if (!url) return;
   state.onSubtitleDetected(url);
   await loadOrTranslate();
+}
+
+/** A provider key has just been saved. Caller has already flipped
+ *  `state.providerReady` to true. Kick translation if the page is ready. */
+export function onProviderReadyChanged() {
+  if (!state.enabled) return;
+  if (state.subtitleUrl) {
+    if (state.phase !== "translating") void loadOrTranslate();
+    return;
+  }
+  if (isMainVideoPlaying() && currentPlatform()?.subtitleSource.kind === "provided") {
+    void ensureProvidedSubtitles();
+  }
 }
 
 /** User flipped the Auto-translate toggle. */

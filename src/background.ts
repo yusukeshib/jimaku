@@ -134,14 +134,16 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage, sender, sendRespons
 
 const ACTIVE_COLOR = "#1f6feb";
 const ERROR_COLOR = "#b91c1c";
+const SETUP_COLOR = "#d97706";
 const DISABLED_COLOR = "#4b5563";
 const IDLE_COLOR = "#9ca3af";
 
-type IconSpec = { color: string; variant: "cc" | "dots" };
+type IconSpec = { color: string; variant: "cc" | "dots" | "question" };
 type BadgeSpec = { text: string; color: string } | null;
 
 function deriveIcon(s: StateSnapshot): IconSpec {
   if (!s.enabled) return { color: DISABLED_COLOR, variant: "cc" };
+  if (!s.providerReady) return { color: SETUP_COLOR, variant: "question" };
   if (s.translation.phase === "error") return { color: ERROR_COLOR, variant: "cc" };
   // On a playback page (content script is live) with no subtitle URL yet
   // — show a loading "..." to signal "waiting to detect".
@@ -153,6 +155,7 @@ function deriveIcon(s: StateSnapshot): IconSpec {
 
 function deriveBadge(s: StateSnapshot): BadgeSpec {
   if (!s.enabled) return null;
+  if (!s.providerReady) return { text: "!", color: SETUP_COLOR };
   if (s.translation.phase === "translating") {
     const p = s.translation.progress;
     const pct = p && p.total > 0 ? Math.round((p.done / p.total) * 100) : 0;
@@ -187,6 +190,13 @@ function drawIcon(size: number, spec: IconSpec): ImageData {
       ctx.arc(cx + i * gap, cy, dotR, 0, Math.PI * 2);
       ctx.fill();
     }
+    return ctx.getImageData(0, 0, size, size);
+  }
+  if (spec.variant === "question") {
+    ctx.font = `900 ${Math.round(size * 0.78)}px system-ui, -apple-system, "Helvetica Neue", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("?", size / 2, size / 2 + Math.round(size * 0.06));
     return ctx.getImageData(0, 0, size, size);
   }
   ctx.font = `900 ${Math.round(size * 0.55)}px system-ui, -apple-system, "Helvetica Neue", sans-serif`;

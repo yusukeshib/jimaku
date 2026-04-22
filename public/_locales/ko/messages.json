@@ -5,6 +5,9 @@
     "message": "Prime Video 또는 Netflix 페이지를 열어 Jimaku를 사용하세요."
   },
   "status_auto_translate_off": { "message": "자동 번역이 꺼져 있습니다." },
+  "status_provider_setup_needed": {
+    "message": "아래에서 번역 제공자를 설정하세요."
+  },
   "status_something_went_wrong": { "message": "오류가 발생했습니다." },
   "status_translating": {
     "message": "번역 중… $DONE$/$TOTAL$ ($PCT$%)",

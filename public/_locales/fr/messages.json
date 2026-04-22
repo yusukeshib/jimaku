@@ -5,6 +5,9 @@
     "message": "Ouvrez une page Prime Video ou Netflix pour utiliser Jimaku."
   },
   "status_auto_translate_off": { "message": "La traduction automatique est désactivée." },
+  "status_provider_setup_needed": {
+    "message": "Configurez un fournisseur de traduction ci-dessous pour commencer."
+  },
   "status_something_went_wrong": { "message": "Une erreur s'est produite." },
   "status_translating": {
     "message": "Traduction… $DONE$/$TOTAL$ ($PCT$%)",

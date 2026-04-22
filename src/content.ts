@@ -8,15 +8,19 @@ import {
   cancelProvidedSubtitles,
   onEnabledChanged,
   onPlaybackTransition,
+  onProviderReadyChanged,
   onTargetLanguageChanged,
 } from "./content/translation";
 import {
   DEFAULT_TARGET_LANGUAGE,
   getEnabled,
   getHideOriginal,
+  getProvider,
+  getProviderKey,
   getShowTranslated,
   getTargetLanguage,
 } from "./lib/cache";
+import type { ProviderId } from "./lib/providers";
 import { currentPlatform } from "./platforms";
 import type { ContentReady, ExtensionMessage, StateSnapshot, StateUpdate } from "./types";
 
@@ -32,6 +36,7 @@ function snapshot(): StateSnapshot {
     playback: state.playback,
     hasSubtitle: state.subtitleUrl !== null,
     enabled: state.enabled,
+    providerReady: state.providerReady,
     title: currentPlatform()?.findTitle() ?? null,
   };
 }
@@ -93,17 +98,25 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
 
 // ---------- Bootstrap ----------
 
+async function readProviderReady(): Promise<boolean> {
+  const id = await getProvider();
+  const key = await getProviderKey(id);
+  return key !== null;
+}
+
 void (async () => {
-  const [showTranslated, hideOriginal, targetLanguage, enabled] = await Promise.all([
+  const [showTranslated, hideOriginal, targetLanguage, enabled, providerReady] = await Promise.all([
     getShowTranslated(),
     getHideOriginal(),
     getTargetLanguage(),
     getEnabled(),
+    readProviderReady(),
   ]);
   state.setShowTranslated(showTranslated);
   state.setHideOriginal(hideOriginal);
   state.setTargetLanguage(targetLanguage);
   state.setEnabled(enabled);
+  state.setProviderReady(providerReady);
 
   // Subscribe after bootstrap so a single initial notify covers both.
   state.subscribe(broadcastState);
@@ -117,6 +130,12 @@ void (async () => {
 
 // ---------- Storage settings ----------
 
+const PROVIDER_KEY_STORAGE: Record<ProviderId, string> = {
+  anthropic: "anthropicKey",
+  openai: "openaiKey",
+  openrouter: "openrouterKey",
+};
+
 chrome.storage.onChanged.addListener((changes, area) => {
   if (area !== "local") return;
   if (changes.showTranslated) state.setShowTranslated(changes.showTranslated.newValue !== false);
@@ -127,6 +146,20 @@ chrome.storage.onChanged.addListener((changes, area) => {
     void onTargetLanguageChanged();
   }
   if (changes.enabled) onEnabledChanged(changes.enabled.newValue !== false);
+
+  // Provider selection or any of the per-provider keys may affect readiness.
+  // Re-derive from storage rather than inferring from the diff — simpler and
+  // always correct.
+  const providerTouched =
+    changes.provider !== undefined ||
+    Object.values(PROVIDER_KEY_STORAGE).some((k) => changes[k] !== undefined);
+  if (providerTouched) {
+    void readProviderReady().then((ready) => {
+      const prev = state.providerReady;
+      state.setProviderReady(ready);
+      if (ready && !prev) onProviderReadyChanged();
+    });
+  }
 });
 
 // ---------- DOM lifecycle ----------

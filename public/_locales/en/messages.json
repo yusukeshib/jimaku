@@ -3,6 +3,9 @@
   "status_checking": { "message": "Checking…" },
   "status_open_streaming_page": { "message": "Open a Prime Video or Netflix page to use Jimaku." },
   "status_auto_translate_off": { "message": "Auto-translate is off." },
+  "status_provider_setup_needed": {
+    "message": "Set up a translation provider below to get started."
+  },
   "status_something_went_wrong": { "message": "Something went wrong." },
   "status_translating": {
     "message": "Translating… $DONE$/$TOTAL$ ($PCT$%)",

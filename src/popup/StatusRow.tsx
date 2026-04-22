@@ -25,6 +25,15 @@ function deriveView(snapshot: StateSnapshot, language: string): View {
       title: snapshot.title,
     };
   }
+  if (!snapshot.providerReady) {
+    return {
+      dotClass: "idle",
+      label: t("status_provider_setup_needed"),
+      progressPct: null,
+      errorMessage: null,
+      title: snapshot.title,
+    };
+  }
   const tr = snapshot.translation;
   if (tr.phase === "error") {
     return {

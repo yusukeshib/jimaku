@@ -33,6 +33,7 @@ export type StateSnapshot = {
   playback: PlaybackState;
   hasSubtitle: boolean;
   enabled: boolean;
+  providerReady: boolean;
   title: string | null;
 };
 
