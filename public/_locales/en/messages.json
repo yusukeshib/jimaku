@@ -40,5 +40,10 @@
   "link_get_a_key": { "message": "Get a key" },
   "hint_key_storage": {
     "message": "Stored in chrome.storage.local in plaintext. Not for shared machines."
-  }
+  },
+  "hint_enable_subtitles_title": { "message": "Turn on subtitles to translate" },
+  "hint_enable_subtitles_body": {
+    "message": "Pick a subtitle track in the player and Jimaku will translate it."
+  },
+  "hint_dismiss": { "message": "Dismiss" }
 }

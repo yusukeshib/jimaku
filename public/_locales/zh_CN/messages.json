@@ -36,5 +36,8 @@
   "msg_disconnected": { "message": "已断开。" },
   "msg_signin_cancelled": { "message": "OpenRouter 登录已取消。" },
   "link_get_a_key": { "message": "获取密钥" },
-  "hint_key_storage": { "message": "以明文形式存储在 chrome.storage.local 中。不适用于共享设备。" }
+  "hint_key_storage": { "message": "以明文形式存储在 chrome.storage.local 中。不适用于共享设备。" },
+  "hint_enable_subtitles_title": { "message": "打开字幕即可翻译" },
+  "hint_enable_subtitles_body": { "message": "在播放器中选择一个字幕轨道，Jimaku 将自动翻译。" },
+  "hint_dismiss": { "message": "关闭" }
 }

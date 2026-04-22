@@ -42,5 +42,10 @@
   "link_get_a_key": { "message": "キーを取得" },
   "hint_key_storage": {
     "message": "chrome.storage.localに平文で保存されます。共有マシンでは使用しないでください。"
-  }
+  },
+  "hint_enable_subtitles_title": { "message": "字幕をオンにすると翻訳されます" },
+  "hint_enable_subtitles_body": {
+    "message": "プレーヤーで字幕トラックを選ぶと、Jimakuが翻訳します。"
+  },
+  "hint_dismiss": { "message": "閉じる" }
 }

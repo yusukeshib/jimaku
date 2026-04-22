@@ -42,5 +42,10 @@
   "link_get_a_key": { "message": "키 받기" },
   "hint_key_storage": {
     "message": "chrome.storage.local에 평문으로 저장됩니다. 공유 기기에서는 사용하지 마세요."
-  }
+  },
+  "hint_enable_subtitles_title": { "message": "자막을 켜면 번역됩니다" },
+  "hint_enable_subtitles_body": {
+    "message": "플레이어에서 자막 트랙을 선택하면 Jimaku가 번역합니다."
+  },
+  "hint_dismiss": { "message": "닫기" }
 }

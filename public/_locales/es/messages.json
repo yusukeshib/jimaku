@@ -42,5 +42,10 @@
   "link_get_a_key": { "message": "Obtener una clave" },
   "hint_key_storage": {
     "message": "Almacenada en chrome.storage.local en texto plano. No uses en máquinas compartidas."
-  }
+  },
+  "hint_enable_subtitles_title": { "message": "Activa los subtítulos para traducir" },
+  "hint_enable_subtitles_body": {
+    "message": "Elige una pista de subtítulos en el reproductor y Jimaku la traducirá."
+  },
+  "hint_dismiss": { "message": "Cerrar" }
 }

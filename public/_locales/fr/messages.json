@@ -42,5 +42,10 @@
   "link_get_a_key": { "message": "Obtenir une clé" },
   "hint_key_storage": {
     "message": "Stockée dans chrome.storage.local en clair. À éviter sur les machines partagées."
-  }
+  },
+  "hint_enable_subtitles_title": { "message": "Activez les sous-titres pour traduire" },
+  "hint_enable_subtitles_body": {
+    "message": "Choisissez une piste de sous-titres dans le lecteur et Jimaku la traduira."
+  },
+  "hint_dismiss": { "message": "Fermer" }
 }

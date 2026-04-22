@@ -2,6 +2,7 @@ import { attachCalibration } from "./content/calibration";
 import { applyHideOriginal, setOverlayText, updateOverlayPosition } from "./content/overlay";
 import { findVideo, watchForPlayback, watchForVideo } from "./content/playback";
 import { state } from "./content/state";
+import { resetSubtitleHint, updateSubtitleHint } from "./content/subtitleHint";
 import { createTrackResolver } from "./content/trackResolver";
 import {
   applySubtitleUrl,
@@ -89,6 +90,7 @@ chrome.runtime.onMessage.addListener((raw: ExtensionMessage) => {
       trackResolver.clear();
       cancelProvidedSubtitles();
       state.onTabReset();
+      resetSubtitleHint();
       break;
     case "POPUP_GET_STATE":
       broadcastState();
@@ -121,8 +123,10 @@ void (async () => {
   // Subscribe after bootstrap so a single initial notify covers both.
   state.subscribe(broadcastState);
   state.subscribe(paintOverlay);
+  state.subscribe(updateSubtitleHint);
   paintOverlay();
   broadcastState();
+  updateSubtitleHint();
 
   const readyMsg: ContentReady = { type: "CONTENT_READY" };
   chrome.runtime.sendMessage(readyMsg).catch(() => {});
