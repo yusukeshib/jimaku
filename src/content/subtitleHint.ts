@@ -69,7 +69,7 @@ function ensureHintRoot(): ShadowRoot {
       <div class="title"></div>
       <div class="body"></div>
     </div>
-    <button class="close" type="button" aria-label=""></button>
+    <button class="close" type="button" aria-label="">×</button>
   `;
   root.appendChild(el);
   const closeBtn = el.querySelector(".close") as HTMLButtonElement;
