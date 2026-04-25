@@ -119,11 +119,11 @@ const SETUP_COLOR = "#d97706";
 const DISABLED_COLOR = "#4b5563";
 const IDLE_COLOR = "#9ca3af";
 
-type IconSpec = { color: string; variant: "cc" | "dots" | "question" };
+type IconSpec = { color: string; variant: "cc" | "dots" | "question" | "off" };
 type BadgeSpec = { text: string; color: string } | null;
 
 function deriveIcon(s: StateSnapshot): IconSpec {
-  if (!s.enabled) return { color: DISABLED_COLOR, variant: "cc" };
+  if (!s.enabled) return { color: DISABLED_COLOR, variant: "off" };
   if (!s.providerReady) return { color: SETUP_COLOR, variant: "question" };
   if (s.translation.phase === "error") return { color: ERROR_COLOR, variant: "cc" };
   // On a playback page (content script is live) with no subtitle URL yet
@@ -184,6 +184,24 @@ function drawIcon(size: number, spec: IconSpec): ImageData {
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
   ctx.fillText("CC", size / 2, size / 2 + Math.round(size * 0.04));
+  if (spec.variant === "off") {
+    const pad = Math.round(size * 0.16);
+    const stroke = Math.max(2, Math.round(size * 0.12));
+    ctx.lineCap = "round";
+    // Halo in the bg color so the slash reads cleanly over the CC glyphs.
+    ctx.strokeStyle = spec.color;
+    ctx.lineWidth = stroke + Math.max(2, Math.round(size * 0.06));
+    ctx.beginPath();
+    ctx.moveTo(pad, size - pad);
+    ctx.lineTo(size - pad, pad);
+    ctx.stroke();
+    ctx.strokeStyle = "#fff";
+    ctx.lineWidth = stroke;
+    ctx.beginPath();
+    ctx.moveTo(pad, size - pad);
+    ctx.lineTo(size - pad, pad);
+    ctx.stroke();
+  }
   return ctx.getImageData(0, 0, size, size);
 }
 
@@ -210,10 +228,21 @@ function applyBadge(tabId: number, s: StateSnapshot) {
   chrome.action.setBadgeText({ tabId, text: spec.text });
 }
 
-chrome.runtime.onInstalled.addListener(() => {
-  chrome.action
-    .setIcon({ imageData: iconSet({ color: IDLE_COLOR, variant: "cc" }) })
-    .catch(() => {});
+function defaultIconSpec(enabled: boolean): IconSpec {
+  return enabled ? { color: IDLE_COLOR, variant: "cc" } : { color: DISABLED_COLOR, variant: "off" };
+}
+
+function applyDefaultIcon(enabled: boolean) {
+  chrome.action.setIcon({ imageData: iconSet(defaultIconSpec(enabled)) }).catch(() => {});
+}
+
+void chrome.storage.local.get("enabled").then((res) => {
+  applyDefaultIcon(res.enabled !== false);
+});
+
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area !== "local" || !changes.enabled) return;
+  applyDefaultIcon(changes.enabled.newValue !== false);
 });
 
 // Clear tab state on full page load
