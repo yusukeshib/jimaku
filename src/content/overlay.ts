@@ -47,10 +47,10 @@ function ensureHost(): ShadowRoot {
       left: 50%;
       top: 88%;
       transform: translate(-50%, -100%);
-      max-width: 80%;
+      max-width: 92%;
       padding: 6px 12px;
       font-family: "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
-      font-size: min(3.5vw, 32px);
+      font-size: min(5vw, 48px);
       line-height: 1.35;
       color: #fff;
       text-align: center;
@@ -99,7 +99,7 @@ function computeFontSizePx(video: HTMLVideoElement | null): number | null {
   if (!video) return null;
   const h = video.getBoundingClientRect().height;
   if (h <= 0) return null;
-  return Math.max(14, Math.min(36, h * 0.035));
+  return Math.max(18, Math.min(52, h * 0.05));
 }
 
 export type PositionContext = {
