@@ -13,7 +13,7 @@ export default defineManifest({
   version: "1.0.0",
   description: "AI subtitle translation for Prime Video. Unofficial — not affiliated with Amazon.",
   default_locale: "en",
-  permissions: ["storage", "webRequest", "webNavigation", "scripting", "identity"],
+  permissions: ["storage", "webRequest", "webNavigation", "identity"],
   host_permissions: [...allHostPermissions(), ...API_HOSTS],
   icons: {
     16: "icons/icon-16.png",
