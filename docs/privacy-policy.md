@@ -101,5 +101,5 @@ visible in the project's git history.
 ## Contact
 
 Questions or requests related to this policy can be sent to the
-developer at `yusuke@nocapinc.com`, or filed as a GitHub issue on
+developer at `yusukeshib@gmail.com`, or filed as a GitHub issue on
 the project repository.
