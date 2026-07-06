@@ -13,45 +13,48 @@ GitHub Pages.
 
 ## Store listing — short description (132 char max)
 
-> AI subtitle translation for Prime Video. Unofficial — not affiliated with Amazon.
+> Watch Prime Video in any language. AI translates English subtitles in real time and overlays them on the player.
 
-(82 characters.)
+(113 characters.)
 
 ## Store listing — detailed description
 
-> Jimaku translates the subtitles of what you are watching on Prime
-> Video into your chosen language, in real time, and overlays the
-> translated text on top of the player.
+> Watch Prime Video in Japanese, French, Spanish, Korean — any language you want.
 >
-> Unofficial. Not affiliated with, sponsored by, or endorsed by Amazon.
+> Jimaku intercepts the English subtitle track, sends it to an AI translation provider of your choice, and overlays the result directly on the player. No copy-pasting, no switching tabs.
 >
-> Pick a provider once in the popup:
+> ── HOW TO GET STARTED ──
+>
+> 1. Click the Jimaku icon on any Prime Video page.
+> 2. Pick a translation provider (OpenRouter is the easiest — one-click sign-in, no API key).
+> 3. Select your target language and press play. Subtitles appear as the AI translates them.
+>
+> ── PROVIDERS ──
 >
 > • OpenRouter — one-click OAuth, no key handling required
-> • Anthropic (Claude) — paste an API key
-> • OpenAI — paste an API key
+> • Anthropic (Claude) — paste your API key
+> • OpenAI (GPT) — paste your API key
 >
-> Your key stays in your browser and is only sent to the provider you
-> chose. Translation counts against your own usage / billing with that
-> provider.
+> Your key is stored only in your browser and sent only to the provider you chose. Jimaku has no backend and collects no data.
 >
-> Language-learning mode (both translated and original captions
-> visible) and replacement mode (translated only) are both supported.
+> ── MODES ──
 >
-> Supported subtitle formats: WebVTT, SRT, TTML / DFXP, HLS WebVTT.
+> • Replacement mode — translated subtitles only (clean viewing experience)
+> • Language-learning mode — translated and original captions both visible
 >
-> Known limitations:
+> ── SUPPORTED FORMATS ──
 >
-> • Occasional chunks may fall back to the original text if the
->   model's response is malformed.
-> • API keys are stored in plain text in chrome.storage.local; do not
->   use this extension on a shared browser profile.
+> WebVTT · SRT · TTML / DFXP · HLS WebVTT (segmented playlists)
+>
+> ── OPEN SOURCE ──
 >
 > Source code: https://github.com/yusukeshib/jimaku
+>
+> Unofficial. Not affiliated with, sponsored by, or endorsed by Amazon.
 
 ## Category
 
-Productivity (primary) — alternatives: Accessibility.
+Entertainment (primary) — alternatives: Accessibility.
 
 ## Single purpose
 
