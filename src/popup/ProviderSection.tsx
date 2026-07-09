@@ -164,10 +164,15 @@ export function ProviderSection({ provider, onProviderChange }: Props) {
 
       <p className={`saved${status.kind === "error" ? " error" : ""}`}>{status.text}</p>
       <p className="hint">
-        <a href={meta.keyHelpUrl} target="_blank" rel="noopener">
-          {t("link_get_a_key")}
-        </a>{" "}
-        · {t("hint_key_storage")}
+        {provider !== "openrouter" && (
+          <>
+            <a href={meta.keyHelpUrl} target="_blank" rel="noopener">
+              {t("link_get_a_key")}
+            </a>{" "}
+            ·{" "}
+          </>
+        )}
+        {t("hint_key_storage")}
       </p>
     </div>
   );
