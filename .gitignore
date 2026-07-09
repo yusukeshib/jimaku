@@ -6,3 +6,6 @@ dist
 .chrome-profile
 eval/out/
 .env.local
+
+# Store upload artifacts
+*.zip

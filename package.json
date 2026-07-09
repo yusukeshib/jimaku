@@ -1,6 +1,6 @@
 {
   "name": "jimaku",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Chrome extension that translates Prime Video subtitles with AI and overlays them on the player",
   "private": true,
   "type": "module",
