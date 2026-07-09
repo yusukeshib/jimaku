@@ -256,7 +256,10 @@
         width: auto;
         text-decoration: underline;
       }
-      .cache-link-btn:hover { color: #024891; }
+      .cache-link-btn:hover:not([disabled]) {
+        background: transparent;
+        color: #024891;
+      }
     </style>
   </head>
   <body>
