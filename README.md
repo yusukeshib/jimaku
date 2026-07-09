@@ -2,6 +2,8 @@
 
 Chrome extension that translates Prime Video subtitles into your chosen language in real time using AI, and overlays them on the player.
 
+**[Install from the Chrome Web Store →](https://chromewebstore.google.com/detail/jimaku/dcnafjicodhjbdolljnkolafnolhbjja)**
+
 ## Usage
 
 1. Open a Prime Video title and start playback with English captions enabled.
