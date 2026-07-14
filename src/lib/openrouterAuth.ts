@@ -1,5 +1,6 @@
 const AUTH_URL = "https://openrouter.ai/auth";
 const EXCHANGE_URL = "https://openrouter.ai/api/v1/auth/keys";
+const KEY_CHECK_URL = "https://openrouter.ai/api/v1/key";
 
 function base64UrlEncode(bytes: Uint8Array): string {
   let s = "";
@@ -60,5 +61,19 @@ export async function connectOpenRouter(): Promise<string> {
   if (typeof data.key !== "string" || !data.key) {
     throw new Error("OpenRouter token exchange returned no key.");
   }
+
+  // Verify the fresh key actually maps to a user before declaring success —
+  // a key that fails here would only surface later as an opaque 401
+  // ("User not found") on the first translation request.
+  const check = await fetch(KEY_CHECK_URL, {
+    headers: { authorization: `Bearer ${data.key}` },
+  });
+  if (!check.ok) {
+    const body = await check.text().catch(() => "");
+    throw new Error(
+      `OpenRouter issued a key but it failed validation (${check.status}): ${body.slice(0, 200) || "no body"}. Try connecting again.`,
+    );
+  }
+
   return data.key;
 }

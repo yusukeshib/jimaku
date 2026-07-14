@@ -1,4 +1,6 @@
-import { getCache, getProviderConfig, setCache } from "../lib/cache";
+import { clearProviderKey, getCache, getProviderConfig, setCache } from "../lib/cache";
+import type { ProviderConfig } from "../lib/providers";
+import { ProviderHttpError } from "../lib/providers";
 import { loadCues } from "../lib/subtitle";
 import { AbortError, translateCues } from "../lib/translate";
 import { currentPlatform } from "../platforms";
@@ -44,6 +46,20 @@ async function hydrateSourceCues(url: string, cached: { sourceCues?: Cue[] }) {
   } catch {
     // Calibration just won't run — not fatal.
   }
+}
+
+/** Map a translation failure to a user-facing message. A 401 means the
+ *  stored key no longer maps to a valid account (revoked/deleted), so clear
+ *  it — the popup flips back to its "connect" state instead of resurfacing
+ *  the same opaque 401 on every attempt. */
+async function describeTranslationError(e: unknown, config: ProviderConfig): Promise<string> {
+  if (e instanceof ProviderHttpError && e.status === 401) {
+    await clearProviderKey(config.id);
+    return config.id === "openrouter"
+      ? "OpenRouter rejected the saved key (it may have been revoked). Reconnect from the popup."
+      : "The saved API key was rejected (401). Re-enter your key from the popup.";
+  }
+  return e instanceof Error ? e.message : String(e);
 }
 
 // --- Translation run ---
@@ -143,7 +159,7 @@ async function runTranslation(resumeFrom: Cue[] | null, priorUsage: Usage | null
       return;
     }
     if (!stillCurrent()) return;
-    state.onTranslationFailed(e instanceof Error ? e.message : String(e));
+    state.onTranslationFailed(await describeTranslationError(e, providerConfig));
   } finally {
     if (state.abortCtrl === ctrl) state.abortCtrl = null;
   }
