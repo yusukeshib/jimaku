@@ -65,10 +65,16 @@ async function describeTranslationError(e: unknown, config: ProviderConfig): Pro
     if (config.id === "openrouter") {
       // Only clear if the stored key still matches the one that produced this
       // 401 — otherwise a stale in-flight request could wipe a key the user
-      // just reconnected with.
-      const currentKey = await getProviderKey(config.id);
-      if (currentKey === config.apiKey) {
-        await clearProviderKey(config.id);
+      // just reconnected with. Storage access can itself fail transiently; if
+      // it does, skip the clear rather than let the error escape and prevent
+      // onTranslationFailed from ever being called.
+      try {
+        const currentKey = await getProviderKey(config.id);
+        if (currentKey === config.apiKey) {
+          await clearProviderKey(config.id);
+        }
+      } catch {
+        // Swallow storage failures — still surface the 401 guidance below.
       }
       return "OpenRouter rejected the saved key (it may have been revoked). Reconnect from the popup.";
     }
