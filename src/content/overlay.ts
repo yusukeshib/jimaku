@@ -92,14 +92,37 @@ function findCaptionTextRect(): { top: number; height: number } | null {
   return lastCaptionRect;
 }
 
+// Last font-size measured off the native caption span, plus the video height
+// at measurement time so we can rescale proportionally when the player is
+// resized while no caption is on screen (the span is torn down between cues).
+let lastNativeFont: { px: number; videoH: number } | null = null;
+
 function computeFontSizePx(video: HTMLVideoElement | null): number | null {
-  // Derive from the video element's height rather than mirroring the native
-  // caption's inline font-size — some players vary it per cue (and tear the
-  // span down between cues), which makes the overlay flicker.
-  if (!video) return null;
-  const h = video.getBoundingClientRect().height;
-  if (h <= 0) return null;
-  return Math.max(18, Math.min(52, h * 0.05));
+  const videoH = video ? video.getBoundingClientRect().height : 0;
+
+  // Prefer mirroring the native caption's computed font-size so the overlay
+  // tracks Prime's own responsive sizing exactly.
+  const el = nativeCaptionEl();
+  if (el) {
+    const px = Number.parseFloat(getComputedStyle(el).fontSize);
+    if (Number.isFinite(px) && px > 0) {
+      lastNativeFont = { px, videoH };
+      return px;
+    }
+  }
+
+  // Between cues the span doesn't exist — reuse the last measurement, scaled
+  // by how much the player has been resized since we took it.
+  if (lastNativeFont) {
+    if (videoH > 0 && lastNativeFont.videoH > 0) {
+      return lastNativeFont.px * (videoH / lastNativeFont.videoH);
+    }
+    return lastNativeFont.px;
+  }
+
+  // Never seen a native caption yet: fall back to a video-height heuristic.
+  if (videoH <= 0) return null;
+  return Math.max(18, Math.min(52, videoH * 0.05));
 }
 
 export type PositionContext = {
