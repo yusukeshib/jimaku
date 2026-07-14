@@ -1,4 +1,10 @@
-import { clearProviderKey, getCache, getProviderConfig, setCache } from "../lib/cache";
+import {
+  clearProviderKey,
+  getCache,
+  getProviderConfig,
+  getProviderKey,
+  setCache,
+} from "../lib/cache";
 import type { ProviderConfig } from "../lib/providers";
 import { ProviderHttpError } from "../lib/providers";
 import { loadCues } from "../lib/subtitle";
@@ -57,7 +63,13 @@ async function hydrateSourceCues(url: string, cached: { sourceCues?: Cue[] }) {
 async function describeTranslationError(e: unknown, config: ProviderConfig): Promise<string> {
   if (e instanceof ProviderHttpError && e.status === 401) {
     if (config.id === "openrouter") {
-      await clearProviderKey(config.id);
+      // Only clear if the stored key still matches the one that produced this
+      // 401 — otherwise a stale in-flight request could wipe a key the user
+      // just reconnected with.
+      const currentKey = await getProviderKey(config.id);
+      if (currentKey === config.apiKey) {
+        await clearProviderKey(config.id);
+      }
       return "OpenRouter rejected the saved key (it may have been revoked). Reconnect from the popup.";
     }
     return "The saved API key was rejected (401). Check or re-enter your key from the popup.";
@@ -162,7 +174,9 @@ async function runTranslation(resumeFrom: Cue[] | null, priorUsage: Usage | null
       return;
     }
     if (!stillCurrent()) return;
-    state.onTranslationFailed(await describeTranslationError(e, providerConfig));
+    const message = await describeTranslationError(e, providerConfig);
+    if (!stillCurrent()) return;
+    state.onTranslationFailed(message);
   } finally {
     if (state.abortCtrl === ctrl) state.abortCtrl = null;
   }
