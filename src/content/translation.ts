@@ -49,15 +49,18 @@ async function hydrateSourceCues(url: string, cached: { sourceCues?: Cue[] }) {
 }
 
 /** Map a translation failure to a user-facing message. A 401 means the
- *  stored key no longer maps to a valid account (revoked/deleted), so clear
- *  it — the popup flips back to its "connect" state instead of resurfacing
- *  the same opaque 401 on every attempt. */
+ *  stored key no longer maps to a valid account (revoked/deleted). For
+ *  OpenRouter we clear the stored key so the popup flips back to its
+ *  "connect" state (reconnect is one click) instead of resurfacing the same
+ *  opaque 401 on every attempt. Hand-pasted keys (Anthropic/OpenAI) are kept
+ *  — a transient provider-side 401 shouldn't wipe a key the user typed in.  */
 async function describeTranslationError(e: unknown, config: ProviderConfig): Promise<string> {
   if (e instanceof ProviderHttpError && e.status === 401) {
-    await clearProviderKey(config.id);
-    return config.id === "openrouter"
-      ? "OpenRouter rejected the saved key (it may have been revoked). Reconnect from the popup."
-      : "The saved API key was rejected (401). Re-enter your key from the popup.";
+    if (config.id === "openrouter") {
+      await clearProviderKey(config.id);
+      return "OpenRouter rejected the saved key (it may have been revoked). Reconnect from the popup.";
+    }
+    return "The saved API key was rejected (401). Check or re-enter your key from the popup.";
   }
   return e instanceof Error ? e.message : String(e);
 }
